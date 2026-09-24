@@ -418,3 +418,11 @@ test('araç ve personel: takip tarihleri, belge, izinli eğitmene ders planlanam
   assert.match(d.j.hata, /izinli/);
   assert.equal((await islem(await gir('buro', 'personel'), { islem: 'personel_belge_ekle', kullaniciId: 'k-egitmen1', tur: 'X' })).durum, 403);
 });
+
+test('MEBBİS listesi: rapor ve hassas yetkisi ister, kapsam içindeki kayıtları verir', async () => {
+  const r = await istek(`/api/mebbis?bas=${gunEkle(-200)}&bit=${gunEkle(1)}`, { cerez: await gir('mudur', 'yonetici') });
+  tamam(r);
+  assert.ok(r.j.liste.length > 0 && r.j.liste.every((o) => o.sube === 'Çankaya Şubesi'));
+  assert.match(r.j.liste[0].tc, /^\d{11}$/);
+  assert.equal((await istek(`/api/mebbis?bas=${gunEkle(-200)}&bit=${gunEkle(1)}`, { cerez: await gir('muhasebe', 'personel') })).durum, 403, 'muhasebe (hassas yetkisi yok) alamaz');
+});

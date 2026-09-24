@@ -65,10 +65,26 @@ function rapor(c, k, bas, bit) {
   return { bas, bit, satirlar, toplam, egitmenler, alacakYaslari: yas, prim: a.prim };
 }
 
+// MEBBİS'e elle girilecek kursiyer bilgileri (karar 16). Otomatik aktarım yoktur; liste Excel'e alınır.
+// Kimlik ve adres içerdiği için hem rapor hem hassas bilgi yetkisi gerekir.
+function mebbisListesi(c, k, bas, bit) {
+  c.hakGerek(k, 'rapor');
+  c.hakGerek(k, 'hassas');
+  bas = gun(bas, 'Başlangıç'); bit = gun(bit, 'Bitiş');
+  const kps = c.kapsam(k);
+  const a = c.ayar();
+  return c.q(`SELECT o.*, s.ad sube, d.ad donem FROM ogrenciler o JOIN subeler s ON s.id=o.sube_id LEFT JOIN donemler d ON d.id=o.donem_id
+      WHERE o.kayit_tarihi BETWEEN ? AND ? AND o.durum!='iptal' ${kps === null ? '' : 'AND o.sube_id=?'} ORDER BY o.kayit_tarihi, o.soyad`, bas, bit, ...(kps === null ? [] : [kps]))
+    .map((o) => ({ tc: o.tc, ad: o.ad, soyad: o.soyad, dogum: o.dogum, telefon: o.telefon, adres: o.adres, sinif: o.sinif, sinifAd: a.siniflar[o.sinif]?.ad || o.sinif,
+      mevcutEhliyet: o.mevcut_ehliyet, kayitTarihi: o.kayit_tarihi, donem: o.donem || '', sube: o.sube, egitmen: o.egitmen_id ? c.q1('SELECT ad FROM kullanicilar WHERE id=?', o.egitmen_id)?.ad : '',
+      ders: c.dersSayaci(o.id) }));
+}
+
 export default {
   ad: 'rapor',
   yol(c, k, { yontem, yol, sorgu }) {
     if (yol === '/api/rapor' && yontem === 'GET') return { durum: 200, veri: rapor(c, k, sorgu.get('bas'), sorgu.get('bit')) };
+    if (yol === '/api/mebbis' && yontem === 'GET') return { durum: 200, veri: { liste: mebbisListesi(c, k, sorgu.get('bas'), sorgu.get('bit')) } };
     return null;
   },
 };

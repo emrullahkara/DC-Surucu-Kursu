@@ -2,7 +2,7 @@
 import { useY } from '../baglam';
 import { eylemler } from '../eylemler';
 import type { Ders } from '../tipler';
-import { DERS_AD, DURUM_DERS, tarih } from '../yardim';
+import { DERS_AD, DURUM_DERS, tarih, whatsapp } from '../yardim';
 import { Bos, IsDugmesi, Rozet } from './ortak';
 
 export function DersTablosu({ liste, tarihGoster = false, ogrenciGoster = true }: { liste: Ders[]; tarihGoster?: boolean; ogrenciGoster?: boolean }) {
@@ -35,6 +35,10 @@ export function DersTablosu({ liste, tarihGoster = false, ogrenciGoster = true }
                     {sonucVer && <IsDugmesi className="dugme yesil kucuk" is={() => E.dersTamam(d)}>Tamamlandı</IsDugmesi>}
                     {sonucVer && <button className="dugme kucuk kirmizi" onClick={() => E.dersGelmedi(d)}>Gelmedi</button>}
                     {!sonucVer && y.hak('ders') && <button className="dugme kucuk" onClick={() => E.dersDurum(d)}>Değiştir</button>}
+                    {d.durum === 'planli' && y.ogr(d.ogrenci_id)?.telefon && (
+                      <a className="dugme kucuk" target="_blank" rel="noopener noreferrer" title="WhatsApp ile hatırlat"
+                        href={whatsapp(y.ogr(d.ogrenci_id)!.telefon, `Merhaba ${y.ogr(d.ogrenci_id)!.ad}, ${tarih(d.tarih)} saat ${d.saat} direksiyon dersiniz var${d.arac_id ? ` (araç ${y.aracAd(d.arac_id)})` : ''}. ${y.b.v.kurum.ad}`)}>Hatırlat</a>
+                    )}
                   </div>
                 </td>
               </tr>

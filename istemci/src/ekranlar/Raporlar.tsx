@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useY, type EkranP } from '../baglam';
 import { api } from '../api';
 import { Bos, Kart, Sayi, bildir } from '../bilesenler/ortak';
-import { YONTEM, ayBasi, csvIndir, gunEkle, tl, tlCsv } from '../yardim';
+import { YONTEM, ayBasi, csvIndir, gunEkle, tarih, tl, tlCsv } from '../yardim';
 
 interface Satir {
   sube_id?: string; sube: string; yeniKayit: number; aktifOgrenci: number; tamamlananDers: number; gelmeyen: number;
@@ -41,6 +41,14 @@ export function Raporlar(_p: EkranP) {
       ...r.egitmenler.map((e) => [e.ad, y.subeAd(e.sube_id), e.direksiyon, e.teorik, e.gelmeyen, (e.dakika / 60).toFixed(1).replace('.', ','), tlCsv(e.prim)]),
     ]);
   };
+  const mebbis = async () => {
+    const r = await api<{ liste: { tc: string; ad: string; soyad: string; dogum: string; telefon: string; adres: string; sinif: string; sinifAd: string; mevcutEhliyet: string; kayitTarihi: string; donem: string; sube: string; egitmen: string; ders: { teorik: number; direksiyon: number } }[] }>(`/api/mebbis?bas=${bas}&bit=${bit}`);
+    if (!r.liste.length) return bildir('Bu aralıkta yeni kayıt yok.', 'hata');
+    csvIndir(`mebbis-kursiyer-${bas}-${bit}.csv`, [
+      ['T.C. kimlik no', 'Ad', 'Soyad', 'Doğum tarihi', 'Telefon', 'Adres', 'İstenen sınıf', 'Elindeki belge', 'Kayıt tarihi', 'Dönem', 'Şube', 'Direksiyon eğitmeni', 'Teorik ders', 'Direksiyon ders'],
+      ...r.liste.map((o) => [o.tc, o.ad, o.soyad, tarih(o.dogum), o.telefon, o.adres, o.sinifAd, o.mevcutEhliyet, tarih(o.kayitTarihi), o.donem, o.sube, o.egitmen, o.ders.teorik, o.ders.direksiyon]),
+    ]);
+  };
   const Tr = ({ x, toplam = false }: { x: Satir; toplam?: boolean }) => (
     <tr className={toplam ? 'toplam' : ''}>
       <td>{x.sube}</td><td className="sayi-h">{x.yeniKayit}</td><td className="sayi-h">{x.aktifOgrenci}</td><td className="sayi-h">{x.tamamlananDers}</td><td className="sayi-h">{x.gelmeyen}</td>
@@ -52,7 +60,7 @@ export function Raporlar(_p: EkranP) {
   const enFazla = r ? Math.max(1, ...r.satirlar.map((x) => x.tahsilat)) : 1;
   return (
     <>
-      <Kart baslik={<h1>Raporlar</h1>} sag={<><button className="dugme" onClick={excel}>Excel</button><button className="dugme" onClick={() => window.print()}>Yazdır</button></>}>
+      <Kart baslik={<h1>Raporlar</h1>} sag={<><button className="dugme" onClick={excel}>Excel</button>{y.hak('hassas') && <button className="dugme" onClick={() => mebbis().catch((e) => bildir(e.message, 'hata'))} title="Seçilen tarihlerde kayıt olan kursiyerlerin MEBBİS'e girilecek bilgileri">MEBBİS kursiyer listesi</button>}<button className="dugme" onClick={() => window.print()}>Yazdır</button></>}>
         <div className="suzgec">
           <label className="alan"><span>Başlangıç</span><input type="date" value={bas} onChange={(e) => setBas(e.target.value)} /></label>
           <label className="alan"><span>Bitiş</span><input type="date" value={bit} onChange={(e) => setBit(e.target.value)} /></label>

@@ -4,7 +4,7 @@ import { useY, type EkranP } from '../baglam';
 import { Bos, Kart, Rozet, Sayi } from '../bilesenler/ortak';
 import { eylemler } from '../eylemler';
 import type { Sinav } from '../tipler';
-import { DURUM_SINAV, SINAV_AD, csvIndir, tarih } from '../yardim';
+import { DURUM_SINAV, SINAV_AD, csvIndir, tarih, whatsapp } from '../yardim';
 
 export function Sinavlar(_p: EkranP) {
   const y = useY();
@@ -39,6 +39,8 @@ export function Sinavlar(_p: EkranP) {
       <td><div className="dugmeler">
         {y.hak('sinav') && <button className="dugme kucuk" onClick={() => E.sinavSonuc(s)}>Sonuç gir</button>}
         {y.hak('sinav') && s.sonuc === 'bekliyor' && <button className="dugme kucuk" onClick={() => E.sinavDuzenle(s)}>Tarih</button>}
+        {s.sonuc === 'bekliyor' && y.ogr(s.ogrenci_id)?.telefon && <a className="dugme kucuk" target="_blank" rel="noopener noreferrer"
+          href={whatsapp(y.ogr(s.ogrenci_id)!.telefon, `Merhaba ${y.ogr(s.ogrenci_id)!.ad}, ${SINAV_AD[s.tur]} tarihiniz: ${tarih(s.tarih)} ${s.saat}${s.yer ? `, ${s.yer}` : ''}. Kimliğinizi yanınızda bulundurun. ${y.b.v.kurum.ad}`)}>Hatırlat</a>}
       </div></td>
     </tr>
   );
