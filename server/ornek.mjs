@@ -154,6 +154,26 @@ export function ornekFirmaDoldur(c) {
     gider(S.cankaya, 1500000, -20, 'Kira', 'Şube kirası');
     gider(S.merkez, 85000, -4, 'Kırtasiye', 'Kağıt, toner');
     run("INSERT INTO tedarikci_odemeleri(id,tedarikci_id,sube_id,tutar,tarih,yontem,aciklama,kaydeden,olusturma) VALUES(?,'t1',?,300000,?,'havale','Kısmi ödeme','Örnek',?)", randomUUID(), S.cankaya, gunEkle(-5), t);
+    // İkinci aşama bölümleri için birkaç örnek: kayıt kaynağı, kişisel veri onayı, adaylar, banka hesabı, senet, karne.
+    const kaynaklar = ['Tavsiye (tanıdık)', 'İnternet araması', 'Sosyal medya', 'Tabela / yoldan geçerken', 'Eski öğrencimiz'];
+    ogrenciler.forEach((o, i) => run('UPDATE ogrenciler SET kaynak=?, kvkk_onay=? WHERE id=?', kaynaklar[i % kaynaklar.length],
+      i % 4 === 3 ? '' : JSON.stringify({ tarih: t, kaydeden: 'Örnek', surum: 1, yol: 'kayıt' }), o.id));
+    const aday = (id, sb, ad, soyad, tel, sinif, kaynak, durum, sonraki, onKayit, notlar) => run(`INSERT INTO adaylar(id,sube_id,ad,soyad,telefon,eposta,sinif,kaynak,fiyat,durum,sonraki_arama,notlar,on_kayit,kaydeden,olusturma)
+      VALUES(?,?,?,?,?,'',?,?,?,?,?,?,?,?,?)`, id, sb, ad, soyad, tel, sinif, kaynak, 1500000, durum, sonraki, notlar, onKayit, onKayit ? 'İnternetten ön kayıt' : 'Canan Büro', t);
+    aday('ad1', S.cankaya, 'Efe', 'Aday', '05000000091', 'B', 'Sosyal medya', 'gorusuluyor', bugun, 0, 'Hafta sonu grubu soruyor');
+    aday('ad2', null, 'Gizem', 'Başvuru', '05000000092', 'B Otomatik', 'İnternet (ön kayıt)', 'yeni', bugun, 1, '');
+    aday('ad3', S.kecioren, 'Hasan', 'Adaylık', '05000000093', 'A2', 'Tavsiye (tanıdık)', 'gorusuluyor', gunEkle(3), 0, 'Fiyat verildi, düşünecek');
+    run("INSERT INTO aday_notlari(id,aday_id,metin,kaydeden,zaman) VALUES('an1','ad1','Arandı, fiyat verildi','Canan Büro',?)", t);
+    run("INSERT INTO banka_hesaplari(id,ad,banka,iban,sube_id,acilis,aktif,olusturma) VALUES('bh1','Merkez vadesiz','Örnek Bank','',NULL,2500000,1,?)", t);
+    run("INSERT INTO banka_hesaplari(id,ad,banka,iban,sube_id,acilis,aktif,olusturma) VALUES('bh2','Çankaya POS','Örnek Bank','',?,0,1,?)", S.cankaya, t);
+    run("INSERT INTO senetler(id,ogrenci_id,sube_id,tur,no,banka,borclu,vade,tutar,durum,aciklama,kaydeden,olusturma) VALUES('sn1','o4',?,'senet','S-0001','','Leyla Örnek',?,300000,'portfoy','','Örnek',?)", S.cankaya, gunEkle(5), t);
+    const karneKonu = ['Araç kontrolü ve hazırlık', 'Kalkış ve duruş', 'Vites ve debriyaj', 'Direksiyon hakimiyeti', 'Paralel park', 'Şehir içi trafikte sürüş'];
+    c.q("SELECT id, ogrenci_id FROM dersler WHERE ogrenci_id='o2' AND durum='tamamlandi' ORDER BY tarih").forEach((d, i) => {
+      const p = {};
+      for (let j = 0; j <= Math.min(i, karneKonu.length - 1); j++) p[karneKonu[j]] = Math.min(5, 2 + Math.floor((i - j) / 2));
+      run('INSERT INTO ders_karneleri(ders_id,ogrenci_id,puanlar,notu,kaydeden,zaman) VALUES(?,?,?,?,?,?)', d.id, d.ogrenci_id, JSON.stringify(p), i === 13 ? 'Sınava hazır, park biraz daha çalışılmalı' : '', 'Deniz Eğitmen', t);
+    });
+    run("UPDATE ogrenciler SET sinava_hazir=? WHERE id='o2'", JSON.stringify({ tarih: gunEkle(-1), kim: 'Deniz Eğitmen', notu: '' }));
     run("INSERT INTO olaylar(zaman,sube_id,kullanici,tur,metin) VALUES(?,NULL,'Sistem','sistem','Örnek kurum hazırlandı (bütün veriler uydurmadır)')", t);
   });
 }

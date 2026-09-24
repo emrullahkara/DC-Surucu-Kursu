@@ -30,7 +30,11 @@ Onaylanan kararlar: `docs/KARARLAR.md` (yeni karar gerekirse oraya yazılır, ta
 - Her işlem `calistir` içinde tek veritabanı işlemidir; `istekNo` aynı isteğin iki kez yazılmasını önler (internetsiz sıra).
 - Yeni tablo: ilgili modülün `sema` işlevine `CREATE TABLE IF NOT EXISTS`. Yeni sütun: `sutunEkle`. Modüller `node:sqlite`, `node:fs` kullanmaz (bulutta çalışmalı).
 - Yeni modül `server/firma.mjs` içindeki `MODULLER` listesine eklenir. Sıra önemlidir: `veri` işlevi öncekilerin doldurduğu alanları kullanabilir (ör. `v.ogrenciler`).
-- Pencere (form) ekran bağlamının dışında çizilir; pencere içeriğinde `useY()` kullanılmaz, gerekenler dışarıdan verilir.
+- Pencere (form) ekran bağlamının dışında çizilir; pencere içeriğinde `useY()` kullanılmaz, gerekenler dışarıdan verilir. `icerikPenceresi` içeriği kendi düğmelerini çizer.
+- Hassas bilgi (evrak, anahtar, şifre) `c.sifre` ile şifreli yazılır (`server/sifreleme.mjs`); kişisel veriye erişim `c.erisimYaz` ile kaydedilir.
+- Nakit hareketi yazan her işlem `kasaGunuDenetle` çağırır (kapatılmış kasa günü).
+- Zamanlanmış iş: modülün `zamanli(c)` işlevi (bilgisayarda 10 dakikada, bulutta yarım saatte bir çağrılır).
+- Mevzuat/hukuk gerektiren değerler varsayılan ayardır ve `docs/KARARLAR.md` içinde "doğrulanmalı" diye işaretlidir.
 
 ## Doğrulama
 

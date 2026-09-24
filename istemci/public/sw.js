@@ -1,6 +1,6 @@
 // Telefona kurulan uygulamanın internetsiz de açılabilmesi için ekran dosyalarını saklar.
 // Veri istekleri (/api/) hiçbir zaman saklanmaz; her zaman sunucudan gelir.
-const SURUM = 'dc-kurs-1';
+const SURUM = 'dc-kurs-2';
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(SURUM).then((c) => c.addAll(['/', '/simge.svg', '/manifest.webmanifest'])).then(() => self.skipWaiting()));
 });

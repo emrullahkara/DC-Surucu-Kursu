@@ -2,7 +2,7 @@
 import { createContext, useContext } from 'react';
 import type { Hak, Veri, Ogrenci } from './tipler';
 
-export type Sekme = 'ozet' | 'ogrenciler' | 'ogrenci' | 'dersler' | 'teorik' | 'sinavlar' | 'kasa' | 'raporlar' | 'araclar' | 'yonetim' | 'ayarlar' | 'hesap' | 'duyurular';
+export type Sekme = 'ozet' | 'ogrenciler' | 'ogrenci' | 'dersler' | 'teorik' | 'sinavlar' | 'kasa' | 'raporlar' | 'araclar' | 'yonetim' | 'ayarlar' | 'hesap' | 'duyurular' | 'adaylar';
 
 export interface Baglam {
   v: Veri;
@@ -14,6 +14,7 @@ export interface Baglam {
   ogrId: string | null;
   canli: boolean;
   yerel: () => void; // sunucuya gitmeden ekranı yeniden çiz (sıraya alınan kayıtlar için)
+  cevrimdisi: string | null; // internetsiz açıldıysa son güncelleme zamanı
 }
 export const BaglamC = createContext<Baglam | null>(null);
 export const useB = () => useContext(BaglamC)!;

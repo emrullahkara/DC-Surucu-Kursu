@@ -32,7 +32,13 @@ Komut, `https://dc-surucu-kursu-deneme.<hesap-adı>.workers.dev` adresini verir.
      npx wrangler secret put PLATFORM_KULLANICI
      npx wrangler secret put PLATFORM_SIFRE
      ```
-  3. Tekrar `npx wrangler deploy`.
+  3. Hassas bilgileri (evrak, anahtarlar) şifreleyen anahtarı verin ve **ayrıca güvenli bir yerde saklayın**
+     (kaybolursa şifreli evrak açılamaz; anahtar sonradan değiştirilmemelidir):
+     ```
+     node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+     npx wrangler secret put VERI_ANAHTARI
+     ```
+  4. Tekrar `npx wrangler deploy`.
 
 ## Bilinmesi gerekenler
 
@@ -42,3 +48,15 @@ Komut, `https://dc-surucu-kursu-deneme.<hesap-adı>.workers.dev` adresini verir.
 | Canlı akış | Açık her ekran, firmanın kaydını çalışır durumda tutar. Çok kullanıcılı gerçek kullanımda WebSocket'e geçmek maliyeti düşürür |
 | PayTR | Gerçek bir PayTR hesabıyla denenmedi. PayTR panelinde bildirim adresi olarak `https://<adres>/api/pos-bildirim/<kurum kodu>/paytr` yazılmalı ve önce test modunda denenmelidir |
 | Saat | Bütün tarih ve saatler Türkiye saatine göre hesaplanır; bulutun saat dilimi sonucu değiştirmez |
+| Yedek | Bulutta her firmanın kaydı son 30 gün içindeki herhangi bir ana geri döndürülebilir (DC Platform > Yedekler). Bu özellik yerel denemede çalışmaz |
+| Hatırlatmalar | Her firma yarım saatte bir kendi zamanlanmış işini (hatırlatma, SMS) çalıştırır |
+| SMS | Netgsm bağlantısı gerçek hesapla denenmedi; kurum Ayarlar > SMS > "Deneme SMS'i" ile kontrol etmeli |
+
+## Bilgisayarda (kendi sunucusunda) çalıştırırken
+
+| Ayar | Anlamı |
+|---|---|
+| `VERI_ANAHTARI` | Şifreleme anahtarı (64 haneli). Verilmezse veri klasöründe `veri-anahtari.txt` oluşturulur; bu dosya yedeklerle birlikte ayrıca saklanmalıdır |
+| `YEDEK_GUNU` | Günlük yedeklerin kaç gün saklanacağı (varsayılan 30, 0 = kapalı). Yedekler `veri/yedekler/<kurum kodu>/` klasöründedir |
+| `GUVENILIR_VEKIL=1` | Önünde nginx gibi bir vekil sunucu varsa kullanıcının adresi `X-Forwarded-For` başlığından okunur. Vekil yoksa açılmamalıdır |
+| `SECURE_COOKIE=1` | HTTPS ile yayında çerez yalnız güvenli bağlantıda gönderilir |

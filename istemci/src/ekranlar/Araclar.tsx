@@ -35,8 +35,8 @@ export function Araclar(_p: EkranP) {
     await islem(a ? 'arac_duzenle' : 'arac_ekle', a ? { id: a.id, ...g } : { ...g, subeId: g.subeId || y.varsayilanSube() });
     await y.b.yenile(); bildir('Kaydedildi.', 'tamam');
   }, { ikili: true });
-  const kmGir = (a: Arac) => pencere(`Kilometre · ${a.plaka}`, [{ ad: 'km', etiket: 'Güncel kilometre', tip: 'number', deger: a.km ?? '', zorunlu: true }],
-    async (g) => { await islem('arac_duzenle', { id: a.id, km: g.km }); await y.b.yenile(); });
+  const kmGir = (a: Arac) => E.aracKm(a);
+  const arizali = (a: Arac) => !!a.ariza && (a.ariza_bas || '') <= v.bugun && (!a.ariza_bit || a.ariza_bit >= v.bugun);
   const giderler = (id: string) => y.subeSuz(v.giderler).filter((g) => g.arac_id === id && !g.iptal);
   return (
     <Kart baslik={<h1>Araçlar</h1>} sag={<button className="dugme ana" onClick={() => form()}>+ Araç ekle</button>}>
@@ -47,7 +47,8 @@ export function Araclar(_p: EkranP) {
           const bakimKmYakin = a.bakim_km && a.km && a.bakim_km - a.km <= 1000;
           return (
             <tr key={a.id} className={a.aktif ? '' : 'iptal'}>
-              <td><b>{a.plaka}</b><div className="kucuk soluk">{a.model} · {a.sinif}</div>{a.notlar && <div className="kucuk soluk">{a.notlar}</div>}</td>
+              <td><b>{a.plaka}</b><div className="kucuk soluk">{a.model} · {a.sinif}</div>{a.notlar && <div className="kucuk soluk">{a.notlar}</div>}
+                {a.ariza && <div><span className={'rozet ' + (arizali(a) ? 'kirmizi' : 'sari')}>{arizali(a) ? 'Arızalı' : 'Arıza planlı'}: {a.ariza}{a.ariza_bit ? ` (${tarih(a.ariza_bit)}’e kadar)` : ''}</span></div>}</td>
               {y.subeSutunu && <td>{y.subeAd(a.sube_id)}</td>}
               <td>{a.km ? a.km.toLocaleString('tr-TR') : '—'}{bakimKmYakin && <div><span className="rozet sari">bakıma {(a.bakim_km! - a.km!).toLocaleString('tr-TR')} km</span></div>}</td>
               {TARIHLER.map(([k]) => <td key={k}><Tarih g={a[k]} /></td>)}
@@ -55,6 +56,7 @@ export function Araclar(_p: EkranP) {
               {v.giderler && <td className="sayi-h">{tl(giderler(a.id).reduce((x, g) => x + g.tutar, 0))}</td>}
               <td><div className="dugmeler">
                 <button className="dugme kucuk" onClick={() => kmGir(a)}>Km</button>
+                <button className={'dugme kucuk' + (a.ariza ? '' : ' kirmizi')} onClick={() => E.aracAriza(a)}>{a.ariza ? 'Kullanıma al' : 'Arıza'}</button>
                 {y.hak('kasa') && <button className="dugme kucuk" onClick={() => E.giderEkle(a.id)}>Gider</button>}
                 <button className="dugme kucuk" onClick={() => form(a)}>Düzenle</button>
               </div></td>

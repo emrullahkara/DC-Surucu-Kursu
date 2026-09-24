@@ -72,21 +72,76 @@ Kasa > Firmalar'da borç görünür ve "Öde" ile kapatılır.
 - **Nakil**: Öğrenci kartı > Şube nakli. Geçmiş ödeme ve dersler eski şubenin hesabında kalır.
 - **Kayıt defteri**: Hesabım > Kayıt defteri. Kim, ne zaman, ne yaptı.
 
-## 5. Güvenlik
+## 5. Adaylar ve internetten ön kayıt
+
+- **Adaylar** ekranı: bilgi almak için arayan ya da gelen kişiyi, verilen fiyatı, tekrar aranacağı günü ve "nereden duydu" bilgisini yazın.
+  Her görüşmeden sonra "Not" ile ne konuşulduğunu ekleyin. Aranma günü gelenler Özet'te görünür. "Kayıt yap" adayı öğrenciye dönüştürür.
+- **İnternetten ön kayıt**: Ayarlar > İnternetten ön kayıt'tan açın. Verilen adresi (`/k/<kurum kodu>/on-kayit`) web sitenize,
+  sosyal medyanıza koyun. Gelen başvuru aday olarak düşer ve merkeze anında bildirilir.
+- Raporlar > Aylık gidişat: kayıtların nereden geldiği ve reklam gideri (gider türü "Reklam") ile kayıt başına maliyet.
+
+## 6. Para: senet, banka, fatura
+
+- **Senet / çek**: Öğrenci kartı > Ödeme durumu > "+ Senet / çek". Ödenmemiş her taksit için ayrı senet oluşturulabilir ve yazdırılabilir.
+  Senet borcu değiştirmez; "Tahsil et" makbuzlu ödeme yazar. Vadesi gelen senetler Özet'te görünür.
+- **Banka ve aktarım**: Kasa > Banka ve aktarım. Banka hesabı / POS ekleyin; kartla ya da havaleyle alınan ödemede hesabı seçin.
+  Şube kasasından merkeze gönderilen ya da bankaya yatırılan parayı "Para aktar" ile girin; gün sonu hesabı bunu düşer.
+- **Kasası kapatılan gün**: Gün sonu yapılmış güne nakit kayıt girilemez. Zorunluysa yönetici gerekçe yazarak girer.
+- **Fatura listesi**: Kasa > Fatura listesi. Makbuz fatura yerine geçmez. Listeyi Excel olarak muhasebecinize verin ya da e-arşiv
+  sisteminizde kestiğiniz faturanın numarasını seçili tahsilatlara işleyin.
+
+## 7. Eğitim
+
+- **Karne**: Eğitmen dersi "tamamlandı" yapınca karne penceresi açılır; çalışılan konuları 1-5 puanlar. Öğrenci kendi ekranında görür.
+  Eğitmen hazır bulduğu öğrenciyi "Sınava hazır" işaretler.
+- **Deneme testi**: Öğrenci kendi ekranından e-sınav deneme testi çözer. Ayarlar > E-sınav deneme testi > Soru bankası'ndan
+  soru ekleyin ya da Excel'den yükleyin (başlangıçta örnek sorular vardır).
+- **Araç arızası**: Araçlar (ya da eğitmen ekranı) > Arıza. Arızalı araca ders verilmez; o günlerin dersleri başka araca aktarılır.
+- **Toplu aktar**: Direksiyon > Toplu aktar. Eğitmen hastalandığında tarih aralığındaki dersleri başka eğitmene geçirir; çakışan dersler listelenir.
+- Planlı ders "Taşı" ile başka güne, saate, eğitmene ya da araca alınır.
+
+## 8. Hatırlatmalar
+
+Ayarlar > Otomatik hatırlatma: ders, sınav ve taksit için kaç gün önce ve hangi saatte. SMS açıksa SMS gider
+(Ayarlar > SMS, önce "Deneme SMS'i"). Değilse hatırlatma öğrencinin ekranında görünür ve "Duyuru ve hatırlatma" ekranından
+WhatsApp ile tek tek gönderilebilir.
+
+## 9. Kişisel veri (KVKK)
+
+- Kayıt formunda aydınlatma metninin verildiği ve onay alındığı işaretlenir. Onayı olmayan öğrencide kartta "Onay alındı" düğmesi vardır.
+- Öğrenci kartı > Veri dökümü: kişinin bütün kaydı (veri isteme hakkı). Öğrenci kendi ekranından da indirebilir.
+- Kursu biten kayıtlar saklama süresi (Ayarlar > Kişisel veri) dolunca anonim yapılır; tek tek de yapılabilir.
+- Hesabım > Kişisel veri erişim kaydı: evrakı kim açtı, MEBBİS listesini kim aldı.
+- Metin ve süreler örnektir; hukuk danışmanınızla kontrol edin.
+
+## 10. Excel'den geçiş
+
+Öğrenciler > Excel'den aktar. Şablonu indirip doldurun ya da kendi listenizi yükleyin (başlıklar otomatik eşleşir).
+Önceden ödenmiş tutar "Ödenen" sütununa yazılır. Hatalı satırlar atlanır ve nedeniyle listelenir.
+
+## 11. Güvenlik
 
 - 5 hatalı şifrede hesap 15 dakika kilitlenir.
 - Hesabım > Ek doğrulama kodu: açılırsa girişte telefondaki Google/Microsoft Authenticator kodu da istenir.
   Açarken verilen 8 kurtarma kodu saklanmalıdır. Telefonunu kaybeden personelin kodunu yönetici sıfırlayabilir.
 - Şube kapatılırsa o şubenin personeli giriş yapamaz; kayıtlar silinmez.
-- Lisans süresi dolarsa giriş kapanır; kayıtlar saklanır.
+- Lisans süresi dolarsa giriş kapanır; kayıtlar saklanır. Bitişe 30 gün kala yöneticiye uyarı çıkar.
+- **Şifremi unuttum**: Personel giriş ekranından talep açar; yönetici (ya da kendi şubesindeki personel için şube müdürü)
+  Personel ekranından tek kullanımlık kod verir. Kişi "Kodum var" ile yeni şifresini belirler.
+- Hesabım > Bütün cihazlardan çık: telefonunu kaybeden personel için.
+- Evrak dosyaları ve anahtarlar şifreli saklanır. Her gün kendiliğinden yedek alınır (DC Platform > Yedekler).
+- Ayarlar > Verilerimi dışarı al: kurumun bütün kaydı tek dosya.
 
-## 6. İnternetten ödeme
+## 12. İnternetten ödeme
 
 Ayarlar > İnternetten ödeme. Kurs kendi PayTR mağaza bilgilerini girer; para doğrudan kursun hesabına geçer.
 Önce "Deneme modu" açıkken denenmelidir. Öğrenci kendi ekranında "Kartla öde" düğmesini görür; ödeme,
 PayTR'nin güvenli sayfasında yapılır ve onaylanınca borçtan düşer, merkezin ekranına da anında gelir.
 PayTR panelinde bildirim adresi: `https://<adres>/api/pos-bildirim/<kurum kodu>/paytr`
 
-## 7. Telefona kurma
+## 13. Telefona kurma
 
 Telefonda adresi açın. Android'de tarayıcı menüsünden "Ana ekrana ekle", iPhone'da Paylaş > "Ana Ekrana Ekle".
+
+Hesabım > Görünüm: koyu renk ve büyük yazı (sahada güneş altında okunaklılık için). Eğitmenin son ders listesi telefonda
+saklanır; internet yokken uygulama açılırsa bu liste gösterilir ve girilen sonuçlar bağlantı gelince gönderilir.

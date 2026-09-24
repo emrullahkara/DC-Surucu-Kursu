@@ -4,7 +4,7 @@ import { useY, type EkranP } from '../baglam';
 import { Bos, Kart, Rozet, Sayi } from '../bilesenler/ortak';
 import { eylemler } from '../eylemler';
 import type { Sinav } from '../tipler';
-import { DURUM_SINAV, SINAV_AD, csvIndir, tarih, whatsapp } from '../yardim';
+import { DURUM_SINAV, SINAV_AD, excelIndir, tarih, whatsapp } from '../yardim';
 
 export function Sinavlar(_p: EkranP) {
   const y = useY();
@@ -22,7 +22,7 @@ export function Sinavlar(_p: EkranP) {
   const sinavGunu = gun ? bekleyen.filter((s) => s.tarih === gun) : [];
 
   // Sınav günü listesi: kimin, hangi saatte, hangi sınava gireceği (MEBBİS'e elle girilecek bilgilerle).
-  const listeIndir = (liste: Sinav[], ad: string) => csvIndir(ad, [
+  const listeIndir = (liste: Sinav[], ad: string) => excelIndir(ad, [
     ['Tarih', 'Saat', 'Sınav', 'Hak', 'T.C. kimlik no', 'Ad', 'Soyad', 'Sınıf', 'Doğum tarihi', 'Telefon', 'Şube', 'Direksiyon ders', 'Teorik ders', 'Yer'],
     ...liste.map((s) => {
       const o = y.ogr(s.ogrenci_id);
@@ -53,7 +53,7 @@ export function Sinavlar(_p: EkranP) {
         <Sayi etiket="Direksiyon geçme oranı" deger={oran('direksiyon')} />
       </div>
       <Kart baslik={<h1>Yaklaşan ve sonuç bekleyen</h1>} sag={<>
-        {y.hak('rapor') && <button className="dugme" onClick={() => listeIndir(bekleyen, `sinav-listesi-${v.bugun}.csv`)}>MEBBİS için Excel</button>}
+        {y.hak('rapor') && <button className="dugme" onClick={() => listeIndir(bekleyen, `sinav-listesi-${v.bugun}.xlsx`)}>MEBBİS için Excel</button>}
         {y.hak('sinav') && <button className="dugme ana" onClick={() => E.sinavEkle()}>+ Sınava yaz</button>}
       </>}>
         {gunler.length > 0 && (
@@ -63,7 +63,7 @@ export function Sinavlar(_p: EkranP) {
               {gunler.map((g) => <option key={g} value={g}>{tarih(g)} ({bekleyen.filter((s) => s.tarih === g).length} kişi)</option>)}
             </select>
             {gun && <button className="dugme" onClick={() => window.print()}>Yazdır</button>}
-            {gun && <button className="dugme" onClick={() => listeIndir(sinavGunu, `sinav-gunu-${gun}.csv`)}>Excel</button>}
+            {gun && <button className="dugme" onClick={() => listeIndir(sinavGunu, `sinav-gunu-${gun}.xlsx`)}>Excel</button>}
           </div>
         )}
         <Tablo x={gun ? sinavGunu : bekleyen} />

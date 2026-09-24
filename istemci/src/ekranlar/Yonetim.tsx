@@ -1,10 +1,10 @@
 // Şubeler, personel, belgeler, izinler ve merkezden görevlendirme.
 import { useY, type EkranP } from '../baglam';
 import { islem } from '../api';
-import { Bos, Kart, bildir, onayla, pencere } from '../bilesenler/ortak';
+import { Bos, Kart, bildir, onayla, pencere, icerikPenceresi, pencereKapat } from '../bilesenler/ortak';
 import { eylemler } from '../eylemler';
 import type { Personel } from '../tipler';
-import { gunFarki, tarih } from '../yardim';
+import { gunFarki, tarih, whatsapp, zamanYaz } from '../yardim';
 
 export function Yonetim(_p: EkranP) {
   const y = useY();
@@ -20,6 +20,7 @@ export function Yonetim(_p: EkranP) {
     const s = v.subeler.find((x) => x.id === id);
     pencere(s ? `Şube · ${s.ad}` : 'Yeni şube', [
       { ad: 'ad', etiket: 'Şube adı', deger: s?.ad, zorunlu: true }, { ad: 'adres', etiket: 'Adres', deger: s?.adres }, { ad: 'telefon', etiket: 'Telefon', tip: 'tel', deger: s?.telefon },
+      { ad: 'kod', etiket: 'Kısa kod (makbuz serisi için)', deger: s?.kod, not: '2-6 harf/rakam, ör. CNK. Ayarlar > Makbuz serisi "şube" seçilirse makbuz numarası bu kodla başlar.' },
       ...(s && !s.merkez ? [{ ad: 'aktif', etiket: 'Şube açık (kapatılırsa o şubenin personeli giriş yapamaz, kayıtlar silinmez)', tip: 'onay' as const, deger: !!s.aktif }] : []),
     ], async (g) => { await islem(s ? 'sube_duzenle' : 'sube_ekle', s ? { id: s.id, ...g } : g); await yenile(s ? 'Kaydedildi.' : 'Şube açıldı. Şimdi şube müdürü ve personel ekleyin.'); });
   };
@@ -34,15 +35,42 @@ export function Yonetim(_p: EkranP) {
     { tip: 'bilgi', html: 'Eğitmen izinliyken ona ders planlanamaz. İzin günlerindeki planlı dersleri başka eğitmene aktarmayı unutmayın.' },
   ], async (g) => { await islem('izin_ekle', { kullaniciId: p.id, ...g }); await yenile(); });
 
+  // Şifresini unutan personele tek kullanımlık kod (60 dk). Kod bir kez gösterilir; telefonla ya da WhatsApp ile iletilir.
+  const kodVer = async (p: { id: string; ad: string }) => onayla(`${p.ad} için şifre sıfırlama kodu üretilsin mi? Kişinin kimliğinden emin olun (ör. telefonla arayın).`, async () => {
+    const r = await islem<{ kod: string; telefon: string; ad: string; kullaniciAdi: string }>('sifre_kodu_uret', { kullaniciId: p.id });
+    await y.b.yenile();
+    const mesaj = `Merhaba ${r.ad}, ${v.kurum.ad} şifre sıfırlama kodunuz: ${r.kod} (60 dakika geçerli). Giriş ekranında "Şifremi unuttum > Kodum var" ile yeni şifrenizi belirleyin. Kullanıcı adınız: ${r.kullaniciAdi}`;
+    setTimeout(() => icerikPenceresi('Şifre sıfırlama kodu', (
+      <div>
+        <p className="kucuk">{r.ad} bu kodla giriş ekranında yeni şifresini belirler. Kod 60 dakika geçerlidir ve bir kez kullanılır. Bu pencere kapanınca kod bir daha gösterilmez.</p>
+        <div className="kod-kutu">{r.kod}</div>
+        <div className="alt">{r.telefon && <a className="dugme" target="_blank" rel="noopener noreferrer" href={whatsapp(r.telefon, mesaj)}>WhatsApp ile gönder</a>}<button type="button" className="dugme ana" onClick={pencereKapat}>Tamam</button></div>
+      </div>
+    ), false), 50);
+  }, 'Kod üret');
+  const talepler = v.sifreTalepleri || [];
+  const duzenleyebilir = (p: Personel) => yon || p.id === v.ben.id || (p.sube_id === v.ben.sube_id && ['buro', 'muhasebe', 'egitmen'].includes(p.rol));
+
   return (
     <>
+      {talepler.length > 0 && (
+        <Kart baslik="Şifresini unutan personel">
+          <ul className="liste">{talepler.map((t) => (
+            <li key={t.id}><b>{t.ad}</b> <span className="soluk kucuk">{v.tanimlar.roller[t.rol]} · {zamanYaz(t.olusturma)}</span>
+              <span className="dugmeler" style={{ marginLeft: 'auto' }}>
+                <button className="dugme kucuk ana" onClick={() => kodVer({ id: t.kullanici_id, ad: t.ad })}>Kod ver</button>
+                <button className="dugme kucuk" onClick={async () => { await islem('sifre_talebi_kapat', { id: t.id }); await y.b.yenile(); }}>Yok say</button>
+              </span></li>
+          ))}</ul>
+        </Kart>
+      )}
       {yon && (
         <Kart baslik={<h1>Şubeler</h1>} sag={<button className="dugme ana" onClick={() => subeForm()}>+ Şube aç</button>}>
           <div className="tablo-kutu"><table>
             <thead><tr><th>Şube</th><th>Adres / telefon</th><th className="sayi-h">Aktif öğrenci</th><th className="sayi-h">Personel</th><th className="sayi-h">Araç</th><th>Durum</th><th></th></tr></thead>
             <tbody>{v.subeler.map((s) => (
               <tr key={s.id} className={s.aktif ? '' : 'iptal'}>
-                <td><b>{s.ad}</b>{s.merkez ? <> <span className="rozet">Merkez</span></> : null}</td><td>{s.adres}<div className="kucuk soluk">{s.telefon}</div></td>
+                <td><b>{s.ad}</b>{s.merkez ? <> <span className="rozet">Merkez</span></> : null}{s.kod && <div className="kucuk soluk">Kod: {s.kod}</div>}</td><td>{s.adres}<div className="kucuk soluk">{s.telefon}</div></td>
                 <td className="sayi-h">{v.ogrenciler.filter((o) => o.sube_id === s.id && o.durum === 'aktif').length}</td>
                 <td className="sayi-h">{v.personel.filter((p) => p.sube_id === s.id && p.aktif).length}</td>
                 <td className="sayi-h">{v.araclar.filter((a) => a.sube_id === s.id && a.aktif).length}</td>
@@ -72,9 +100,12 @@ export function Yonetim(_p: EkranP) {
                 })}</td>
                 <td>{p.aktif ? <span className="rozet yesil">Açık</span> : <span className="rozet gri">Kapalı</span>}</td>
                 <td><div className="dugmeler">
-                  <button className="dugme kucuk" onClick={() => E.personel(p)}>Düzenle</button>
-                  <button className="dugme kucuk" onClick={() => belgeForm(p)}>+ Belge</button>
-                  <button className="dugme kucuk" onClick={() => izinForm(p)}>+ İzin</button>
+                  {duzenleyebilir(p) ? <>
+                    <button className="dugme kucuk" onClick={() => E.personel(p)}>Düzenle</button>
+                    <button className="dugme kucuk" onClick={() => belgeForm(p)}>+ Belge</button>
+                    <button className="dugme kucuk" onClick={() => izinForm(p)}>+ İzin</button>
+                    {p.id !== v.ben.id && p.aktif ? <button className="dugme kucuk" title="Şifresini unutan personel için tek kullanımlık kod" onClick={() => kodVer(p)}>Şifre kodu</button> : null}
+                  </> : <span className="kucuk soluk">Başka şubeden görevli (merkez düzenler)</span>}
                   {yon && p.id !== v.ben.id && <button className="dugme kucuk" title="Telefonunu kaybeden personelin ek doğrulama kodunu kapatır"
                     onClick={() => onayla(`${p.ad} için ek doğrulama kodu kapatılsın mı? (Açık değilse bir şey değişmez.)`, async () => { await islem('totp_sifirla', { id: p.id }); await yenile(); })}>Kodu sıfırla</button>}
                 </div></td>

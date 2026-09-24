@@ -9,7 +9,7 @@ import { anahtarCoz, yeniAnahtar } from './sifreleme.mjs';
 import { fileURLToPath } from 'node:url';
 import { nodeVeritabani } from './db.mjs';
 import { firmaAc } from './firma.mjs';
-import { IsHatasi, fail } from './domain.mjs';
+import { IsHatasi, fail, yerelZaman } from './domain.mjs';
 import { platformCekirdegi } from './platform-cekirdek.mjs';
 import { ornekFirmaDoldur } from './ornek.mjs';
 
@@ -66,7 +66,8 @@ export function platformAc({
   // -------------------------------------------------------------------------
   // YEDEK (bilgisayardaki sunucu). Veritabanı çalışırken tutarlı kopya alınır (VACUUM INTO).
   // -------------------------------------------------------------------------
-  const zamanDamgasi = () => new Date(saatKaynagi()).toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
+  // Yedek dosya adındaki zaman Türkiye saatine göredir (ör. ornek-20260925-0235-gunluk.sqlite).
+  const zamanDamgasi = () => { const z = yerelZaman(saatKaynagi()); return `${z.tarih.replace(/-/g, '')}-${z.saat.replace(':', '')}`; };
   function yedekListesi(kod) {
     const d = yedekDizini(kod);
     if (!existsSync(d)) return [];
@@ -103,7 +104,7 @@ export function platformAc({
       try {
         const l = yedekListesi(kod);
         if (!l.some((x) => x.ad.startsWith(`${kod}-${bugunkuOn}`) && x.ad.endsWith('-gunluk.sqlite'))) yedekAl(kod, 'gunluk');
-        const sinir = new Date(saatKaynagi().getTime() - yedekGunu * 86400000).toISOString().slice(0, 10).replace(/-/g, '');
+        const sinir = yerelZaman(new Date(saatKaynagi().getTime() - yedekGunu * 86400000)).tarih.replace(/-/g, '');
         for (const x of yedekListesi(kod)) if (x.ad.slice(kod.length + 1, kod.length + 9) < sinir) rmSync(resolve(yedekDizini(kod), x.ad), { force: true });
       } catch (e) { console.error(`Yedek alınamadı (${kod}):`, e.message); }
     }

@@ -1,11 +1,15 @@
 // Açılış: kurum kodu -> giriş -> personel ekranı ya da öğrenci ekranı.
 import { useCallback, useEffect, useState } from 'react';
-import { api, ApiHatasi, firmaHatirla, firmaKodu } from './api';
+import { api, ApiHatasi, firmaHatirla, firmaKodu, kuyrukOku, sonVeriOku, sonVeriSil } from './api';
 import { Giris, FirmaKodu } from './ekranlar/Giris';
 import { Kabuk } from './ekranlar/Kabuk';
 import { OgrenciEkrani } from './ekranlar/OgrenciEkrani';
+import { OnKayit } from './ekranlar/OnKayit';
+import { onayla } from './bilesenler/ortak';
 
-export interface FirmaBilgi { kod: string; ad: string; logo: string; lisans: 'acik' | 'bitti' | 'kapali'; demo: boolean }
+export interface FirmaBilgi { kod: string; ad: string; logo: string; lisans: 'acik' | 'bitti' | 'kapali'; lisansBitis?: string; demo: boolean; onKayit?: boolean }
+// İnternetten ön kayıt sayfası: /k/<kurum kodu>/on-kayit ya da ?firma=<kod>&onkayit=1 (giriş gerektirmez).
+const onKayitSayfasi = () => /\/on-kayit\/?$/.test(location.pathname) || new URL(location.href).searchParams.has('onkayit');
 type Durum =
   | { ad: 'yukleniyor' }
   | { ad: 'kod'; hata?: string }
@@ -13,7 +17,8 @@ type Durum =
   | { ad: 'lisans'; firma: FirmaBilgi }
   | { ad: 'giris'; firma: FirmaBilgi }
   | { ad: 'personel'; firma: FirmaBilgi }
-  | { ad: 'ogrenci'; firma: FirmaBilgi };
+  | { ad: 'ogrenci'; firma: FirmaBilgi }
+  | { ad: 'onkayit'; firma: FirmaBilgi };
 
 export function Uygulama() {
   const [d, setD] = useState<Durum>({ ad: 'yukleniyor' });
@@ -30,6 +35,7 @@ export function Uygulama() {
     }
     firmaHatirla(firma.kod);
     document.title = `${firma.ad} · DC Sürücü Kursu`;
+    if (onKayitSayfasi()) return setD({ ad: 'onkayit', firma });
     if (firma.lisans !== 'acik') return setD({ ad: 'lisans', firma });
     try {
       const b = await api<{ tur: 'personel' | 'ogrenci' }>('/api/ben');
@@ -39,12 +45,27 @@ export function Uygulama() {
       setD({ ad: 'hata', mesaj: (e as Error).message });
     }
   }, []);
+  // İnternet yokken açılış: kurum bilgisi alınamaz; eğitmenin telefonda saklanan son listesi varsa o gösterilir.
+  const cevrimdisiAc = useCallback(() => {
+    const s = sonVeriOku<{ kurum: { ad: string; logo: string } }>();
+    if (!s) return false;
+    setD({ ad: 'personel', firma: { kod: firmaKodu(), ad: s.v.kurum.ad, logo: s.v.kurum.logo, lisans: 'acik', demo: false } });
+    return true;
+  }, []);
 
   useEffect(() => { basla(); }, [basla]);
+  useEffect(() => { if (d.ad === 'hata' && !navigator.onLine) cevrimdisiAc(); }, [d.ad, cevrimdisiAc]);
 
   const cikis = useCallback(async () => {
-    try { await api('/api/cikis', {}); } catch { /* yine de çık */ }
-    basla();
+    const bitir = async () => {
+      try { await api('/api/cikis', {}); } catch { /* yine de çık */ }
+      sonVeriSil();
+      basla();
+    };
+    // Gönderilmemiş kayıt varsa uyar: kayıtlar silinmez, aynı kişi tekrar girince gönderilir.
+    const n = kuyrukOku().length;
+    if (n) onayla(`${n} kayıt henüz merkeze gönderilmedi (internet yok). Çıkarsanız kayıtlar bu telefonda saklanır ve siz tekrar girdiğinizde gönderilir. Başka biri bu telefonla giriş yaparsa onun adına GÖNDERİLMEZ. Çıkılsın mı?`, bitir, 'Çık');
+    else bitir();
   }, [basla]);
   const kurumDegistir = () => {
     firmaHatirla(null);
@@ -57,8 +78,10 @@ export function Uygulama() {
     case 'yukleniyor': return <p className="yukleniyor">Yükleniyor…</p>;
     case 'kod': return <FirmaKodu hata={d.hata} tamam={(kod) => { firmaHatirla(kod); basla(); }} />;
     case 'hata': return (
-      <div className="giris"><div className="kart"><div className="hata">{d.mesaj}</div><button className="dugme ana" onClick={basla}>Tekrar dene</button></div></div>
+      <div className="giris"><div className="kart"><div className="hata">{d.mesaj}</div><button className="dugme ana" onClick={basla}>Tekrar dene</button>
+        {sonVeriOku() && <button className="dugme" onClick={cevrimdisiAc}>İnternetsiz devam et (son liste)</button>}</div></div>
     );
+    case 'onkayit': return <OnKayit firma={d.firma} />;
     case 'lisans': return (
       <div className="giris"><div className="kart">
         <h1>{d.firma.ad}</h1>

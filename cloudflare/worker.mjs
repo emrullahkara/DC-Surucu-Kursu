@@ -147,9 +147,14 @@ export class FirmaDO extends DurableObject {
         const { zaman } = await req.json();
         const ms = Date.parse(zaman);
         if (!Number.isFinite(ms) || ms > Date.now() || ms < Date.now() - 30 * 86400000) throw new IsHatasi('Son 30 gün içinde bir an seçin.');
-        const onceki = await this.ctx.storage.getCurrentBookmark();
-        const im = await this.ctx.storage.getBookmarkForTime(ms);
-        await this.ctx.storage.onNextSessionRestoreBookmark(im);
+        let onceki;
+        try {
+          onceki = await this.ctx.storage.getCurrentBookmark();
+          await this.ctx.storage.onNextSessionRestoreBookmark(await this.ctx.storage.getBookmarkForTime(ms));
+        } catch (e) {
+          console.error(e);
+          throw new IsHatasi('Zamanda geri dönüş bu ortamda yapılamadı (yerel denemede desteklenmez; yalnız gerçek bulutta çalışır).', 501);
+        }
         setTimeout(() => this.ctx.abort('yedekten dönüş'), 50);
         return json(200, { tamam: true, oncekiIsaret: onceki });
       }

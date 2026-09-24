@@ -158,7 +158,7 @@ function YoklamaFormu({ gr, durum, adlar, kaydet }: { gr: TeorikGrup; durum: Map
           </li>
         ))}
       </ul>
-      <div className="alt"><IsDugmesi className="dugme ana" is={() => kaydet([...d].map(([ogrenciId, durum]) => ({ ogrenciId, durum })))}>Yoklamayı kaydet</IsDugmesi></div>
+      <div className="alt"><button type="button" className="dugme" onClick={pencereKapat}>Vazgeç</button><IsDugmesi className="dugme ana" is={() => kaydet([...d].map(([ogrenciId, durum]) => ({ ogrenciId, durum })))}>Yoklamayı kaydet</IsDugmesi></div>
     </div>
   );
 }
