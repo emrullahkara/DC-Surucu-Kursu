@@ -1,6 +1,6 @@
 // Direksiyon ve teorik dersler: planlama, sahadan sonuç girişi, öğrencinin kendi saatini seçmesi.
 import { randomUUID } from 'node:crypto';
-import { fail, metin, gun, saat, secim, tamSayi } from '../domain.mjs';
+import { fail, metin, gun, saat, secim, tamSayi, yerelZaman } from '../domain.mjs';
 
 const simdi = () => new Date().toISOString();
 const adSoyad = (o) => `${o.ad} ${o.soyad}`;
@@ -39,7 +39,7 @@ export function bosSaatler(c, o, tarih) {
   if (!o.egitmen_id) return sonuc;
   if (c.q1('SELECT 1 FROM izinler WHERE kullanici_id=? AND bas<=? AND bit>=?', o.egitmen_id, tarih, tarih)) return sonuc;
   const bas = dk(a.ogrenciDersSecimi.bas), bit = dk(a.ogrenciDersSecimi.bit);
-  const simdiDk = tarih === c.bugunStr() ? (() => { const d = c.saatKaynagi(); return d.getHours() * 60 + d.getMinutes() + 60; })() : 0;
+  const simdiDk = tarih === c.bugunStr() ? yerelZaman(c.saatKaynagi()).dakika + 60 : 0;
   for (let m = bas; m + sure <= bit; m += 60) {
     if (m < simdiDk) continue;
     if (cakisma(c, 'egitmen_id', o.egitmen_id, tarih, m, sure) || cakisma(c, 'ogrenci_id', o.id, tarih, m, sure)) continue;
@@ -126,12 +126,11 @@ CREATE INDEX IF NOT EXISTS ders_egitmen ON dersler(egitmen_id, tarih);
       if (!c.hak(k, 'ders') && o.egitmen_id !== k.id) fail('Bu öğrenci size bağlı değil.', 403);
       if (k.rol !== 'yonetici' && o.sube_id !== k.sube_id && !c.gorevli(k.id, o.sube_id, c.bugunStr())) fail('Bu öğrencinin şubesinde görevli değilsiniz.', 403);
       const tur = secim(g.dersTuru || 'direksiyon', ['teorik', 'direksiyon'], 'Ders türü');
-      const an = c.saatKaynagi();
-      const yerel = new Date(an.getTime() - an.getTimezoneOffset() * 60000).toISOString();
+      const yz = yerelZaman(c.saatKaynagi());
       const id = randomUUID();
       c.run("INSERT INTO dersler(id,ogrenci_id,sube_id,egitmen_id,arac_id,tur,tarih,saat,sure_dk,durum,notu,kaydeden,tamamlanma,olusturma,konum) VALUES(?,?,?,?,?,?,?,?,?,'tamamlandi',?,?,?,?,?)",
         id, o.id, o.sube_id, k.id, tur === 'direksiyon' ? c.aracAl(o.sube_id, g.aracId)?.id || null : null, tur,
-        yerel.slice(0, 10), yerel.slice(11, 16), tamSayi(g.sureDk || c.ayar().dersSuresi, 10, 240, 'Süre'), metin(g.notu, 500), k.ad, simdi(), simdi(), konumOku(c, g));
+        yz.tarih, yz.saat, tamSayi(g.sureDk || c.ayar().dersSuresi, 10, 240, 'Süre'), metin(g.notu, 500), k.ad, simdi(), simdi(), konumOku(c, g));
       const ek = tur === 'direksiyon' ? ekDersUcreti(c, k, o, id) : null;
       return { sonuc: { id }, olay: [o.sube_id, 'ders', `Sahadan: ${adSoyad(o)} ${tur} dersi tamamlandı (${k.ad})${ek ? ` · ${ek}. ek ders, ücret borca eklendi` : ''}`, { egitmen: k.id }] };
     },
@@ -165,7 +164,7 @@ CREATE INDEX IF NOT EXISTS ders_egitmen ON dersler(egitmen_id, tarih);
       const d = c.q1("SELECT * FROM dersler WHERE id=? AND ogrenci_id=? AND durum='planli'", metin(g.id, 60, true), o.id);
       if (!d) fail('Ders bulunamadı.');
       // Son 24 saatte bırakılamaz; eğitmenin günü boşa gitmesin.
-      const fark = Date.parse(`${d.tarih}T${d.saat || '00:00'}:00`) - c.saatKaynagi().getTime();
+      const fark = Date.parse(`${d.tarih}T${d.saat || '00:00'}:00+03:00`) - c.saatKaynagi().getTime();
       if (fark < 24 * 3600 * 1000) fail('Derse 24 saatten az kaldı. İptal için kursu arayın.');
       c.run("UPDATE dersler SET durum='iptal', notu='Öğrenci bıraktı' WHERE id=?", d.id);
       return { olay: [d.sube_id, 'ders', `${adSoyad(o)} ${d.tarih} ${d.saat} dersini bıraktı`, { egitmen: d.egitmen_id }] };

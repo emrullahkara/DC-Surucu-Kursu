@@ -1,7 +1,7 @@
 // Şubeler, personel, görevlendirme, araçlar ve kurum ayarları.
 import { randomUUID } from 'node:crypto';
 import { fail, metin, gun, tamSayi, secim } from '../domain.mjs';
-import { sutunEkle } from '../db.mjs';
+import { sutunEkle } from '../db-ortak.mjs';
 
 const simdi = () => new Date().toISOString();
 const saatDogru = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(s);

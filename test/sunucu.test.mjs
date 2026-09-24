@@ -5,18 +5,21 @@ import { createServer } from 'node:http';
 import { platformAc } from '../server/platform.mjs';
 import { etkinHaklar } from '../server/firma.mjs';
 import { tcUret, ORNEK } from '../server/ornek.mjs';
-import { taksitPlani, hesapDurumu, tcGecerli } from '../server/domain.mjs';
+import { taksitPlani, hesapDurumu, tcGecerli, bugun } from '../server/domain.mjs';
 
 let platform, sunucu, adres;
+// TEST_ADRES verilirse testler çalışan bir sunucuya (ör. "wrangler dev --local" ile bulut sürümü) karşı koşar.
 before(async () => {
+  if (process.env.TEST_ADRES) { adres = process.env.TEST_ADRES; return; }
   platform = platformAc({ bellekte: true, demo: true });
   sunucu = createServer(platform.handler);
   await new Promise((r) => sunucu.listen(0, r));
   adres = 'http://localhost:' + sunucu.address().port;
 });
-after(() => { sunucu.closeAllConnections?.(); sunucu.close(); platform.kapat(); });
+after(() => { if (!platform) return; sunucu.closeAllConnections?.(); sunucu.close(); platform.kapat(); });
 
-const gunEkle = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+// Sunucu gibi Türkiye saatine göre.
+const gunEkle = (n) => { const d = new Date(bugun() + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
 async function istek(yol, { govde, cerez = '', firma = 'ornek', basliksiz = false } = {}) {
   const h = { cookie: cerez };
@@ -52,6 +55,11 @@ test('hesaplar: geciken tutar ve taksit durumu', () => {
   assert.equal(h.geciken, 400);
   assert.deepEqual(h.taksitler.map((x) => x.durum), ['odendi', 'gecikti', 'bekliyor']);
 });
+test('saat: tarih her yerde Türkiye saatine göredir', () => {
+  assert.equal(bugun(new Date('2026-09-24T21:30:00Z')), '2026-09-25', 'UTC 21:30 = Türkiye 00:30, ertesi gün');
+  assert.equal(bugun(new Date('2026-09-24T20:59:00Z')), '2026-09-24');
+});
+
 test('T.C. kimlik doğrulama', () => {
   assert.ok(tcGecerli(tcUret('123456789')));
   assert.ok(!tcGecerli('12345678901'));

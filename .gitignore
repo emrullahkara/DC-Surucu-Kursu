@@ -6,3 +6,4 @@ data/
 *.sqlite-*
 .env*
 istemci/dist/
+.wrangler/

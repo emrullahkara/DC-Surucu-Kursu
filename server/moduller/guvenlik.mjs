@@ -5,7 +5,7 @@
 // kullanıcı hesabından kilitlenmez.
 import { randomBytes, createHmac, createHash, timingSafeEqual } from 'node:crypto';
 import { fail, metin } from '../domain.mjs';
-import { sutunEkle } from '../db.mjs';
+import { sutunEkle } from '../db-ortak.mjs';
 
 const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 export function b32Kodla(buf) {

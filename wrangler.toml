@@ -1,0 +1,29 @@
+# DC Sürücü Kursu · bulut ayarı (DENEME)
+# Yayın yalnız Emrullah KARA'nın onayıyla yapılır; adımlar docs/YAYIN.md dosyasındadır.
+# Ad bilerek "deneme" içerir; Mağaza Takip'in canlı sürümüyle hiçbir ortak kaynağı yoktur.
+name = "dc-surucu-kursu-deneme"
+main = "cloudflare/worker.mjs"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "istemci/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+[[durable_objects.bindings]]
+name = "PLATFORM"
+class_name = "PlatformDO"
+
+[[durable_objects.bindings]]
+name = "FIRMA"
+class_name = "FirmaDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PlatformDO", "FirmaDO"]
+
+[vars]
+# Deneme yayınında örnek kurum ("ornek") ve deneme ödeme sağlayıcısı açıktır. Gerçek kullanımda "0" yapılmalıdır.
+ENABLE_DEMO = "1"
