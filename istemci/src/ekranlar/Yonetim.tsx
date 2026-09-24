@@ -75,6 +75,8 @@ export function Yonetim(_p: EkranP) {
                   <button className="dugme kucuk" onClick={() => E.personel(p)}>Düzenle</button>
                   <button className="dugme kucuk" onClick={() => belgeForm(p)}>+ Belge</button>
                   <button className="dugme kucuk" onClick={() => izinForm(p)}>+ İzin</button>
+                  {yon && p.id !== v.ben.id && <button className="dugme kucuk" title="Telefonunu kaybeden personelin ek doğrulama kodunu kapatır"
+                    onClick={() => onayla(`${p.ad} için ek doğrulama kodu kapatılsın mı? (Açık değilse bir şey değişmez.)`, async () => { await islem('totp_sifirla', { id: p.id }); await yenile(); })}>Kodu sıfırla</button>}
                 </div></td>
               </tr>
             );

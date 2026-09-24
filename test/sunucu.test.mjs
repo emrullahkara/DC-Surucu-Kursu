@@ -426,3 +426,32 @@ test('MEBBİS listesi: rapor ve hassas yetkisi ister, kapsam içindeki kayıtlar
   assert.match(r.j.liste[0].tc, /^\d{11}$/);
   assert.equal((await istek(`/api/mebbis?bas=${gunEkle(-200)}&bit=${gunEkle(1)}`, { cerez: await gir('muhasebe', 'personel') })).durum, 403, 'muhasebe (hassas yetkisi yok) alamaz');
 });
+
+test('ek doğrulama: açılınca kod ister, yanlış kod girilemez, kurtarma kodu bir kez çalışır', async () => {
+  const { totpUret } = await import('../server/moduller/guvenlik.mjs');
+  const m = await gir('muhasebe', 'personel');
+  const b = await islem(m, { islem: 'totp_baslat' });
+  tamam(b);
+  const adim = Math.floor(Date.now() / 30000);
+  assert.equal((await islem(m, { islem: 'totp_ac', kod: '000000' === totpUret(b.j.gizli, adim) ? '111111' : '000000' })).durum, 400);
+  const ac = await islem(m, { islem: 'totp_ac', kod: totpUret(b.j.gizli, adim) });
+  tamam(ac);
+  assert.equal(ac.j.kurtarmaKodlari.length, 8);
+  let r = await istek('/api/giris', { govde: { kullaniciAdi: 'muhasebe', sifre: ORNEK.sifre, kapi: 'personel' } });
+  assert.equal(r.j.kodGerekli, true);
+  assert.equal(r.cerez, '', 'kod girilmeden oturum açılmaz');
+  r = await istek('/api/giris', { govde: { kullaniciAdi: 'muhasebe', sifre: ORNEK.sifre, kapi: 'personel', kod: totpUret(b.j.gizli, adim) } });
+  assert.equal(r.durum, 401, 'aynı kod ikinci kez kullanılamaz');
+  r = await istek('/api/giris', { govde: { kullaniciAdi: 'muhasebe', sifre: ORNEK.sifre, kapi: 'personel', kod: ac.j.kurtarmaKodlari[0] } });
+  tamam(r);
+  r = await istek('/api/giris', { govde: { kullaniciAdi: 'muhasebe', sifre: ORNEK.sifre, kapi: 'personel', kod: ac.j.kurtarmaKodlari[0] } });
+  assert.equal(r.durum, 401, 'kurtarma kodu tek kullanımlık');
+  tamam(await islem(await gir('patron', 'yonetici'), { islem: 'totp_sifirla', id: 'k-muhasebe' }));
+});
+
+test('kayıt defteri: müdür kendi şubesini görür, eğitmen göremez, arama çalışır', async () => {
+  const r = await istek('/api/kayit-defteri?ara=Yoklama', { cerez: await gir('mudur', 'yonetici') });
+  tamam(r);
+  assert.ok(r.j.olaylar.every((o) => o.sube_id === 'sube-cankaya'));
+  assert.equal((await istek('/api/kayit-defteri', { cerez: await gir('egitmen1', 'personel') })).durum, 403);
+});

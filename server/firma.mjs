@@ -14,8 +14,9 @@ import rapor from './moduller/rapor.mjs';
 import donem from './moduller/donem.mjs';
 import evrak from './moduller/evrak.mjs';
 import duyuru from './moduller/duyuru.mjs';
+import guvenlik from './moduller/guvenlik.mjs';
 
-export const MODULLER = [temel, donem, ogrenci, evrak, para, ders, sinav, rapor, duyuru];
+export const MODULLER = [temel, donem, ogrenci, evrak, para, ders, sinav, rapor, duyuru, guvenlik];
 
 // ---------------------------------------------------------------------------
 // ROLLER VE YETKİLER
