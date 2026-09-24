@@ -1,5 +1,8 @@
 node_modules/
+veri/
+veri-demo/
 data/
 *.sqlite
 *.sqlite-*
 .env*
+istemci/dist/
