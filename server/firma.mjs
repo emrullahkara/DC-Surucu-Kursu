@@ -195,6 +195,8 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
     const e = q1("SELECT * FROM kullanicilar WHERE id=? AND rol IN ('egitmen','sube_muduru','yonetici') AND aktif=1", String(id));
     if (!e) fail('Eğitmen bulunamadı.');
     if (e.rol !== 'yonetici' && e.sube_id !== subeId && !gorevli(e.id, subeId, tarih)) fail(`${e.ad} bu şubede çalışmıyor (görevlendirme de yok).`);
+    const izin = q1('SELECT tur, bit FROM izinler WHERE kullanici_id=? AND bas<=? AND bit>=?', e.id, tarih, tarih);
+    if (izin) fail(`${e.ad} ${tarih} tarihinde izinli (${izin.tur}).`);
     return e;
   }
   function aracAl(subeId, id) {

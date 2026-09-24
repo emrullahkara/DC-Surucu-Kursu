@@ -57,6 +57,11 @@ export function ornekFirmaDoldur(c) {
       ['a6', S.kecioren, '06 DC 006', 'Örnek Sedan', 'B'], ['a4', S.merkez, '06 DC 004', 'Örnek Sedan', 'B'],
     ];
     for (const a of arac) run('INSERT INTO araclar(id,sube_id,plaka,model,sinif,aktif) VALUES(?,?,?,?,?,1)', ...a);
+    arac.forEach(([id], i) => run('UPDATE araclar SET km=?, muayene=?, sigorta=?, kasko=?, bakim=?, bakim_km=? WHERE id=?',
+      42000 + i * 9100, gunEkle(i === 0 ? 9 : 200 + i * 20), gunEkle(i === 3 ? -2 : 120 + i * 15), gunEkle(150 + i * 10), gunEkle(i === 1 ? 5 : 60 + i * 7), 50000 + i * 9100 + (i === 2 ? -8600 : 0), id));
+    run("INSERT INTO personel_belgeleri(id,kullanici_id,tur,no,bitis,notlar,kaydeden,olusturma) VALUES('pb1','k-egitmen1','Usta öğretici belgesi','ÖRN-0001',?,'','Örnek',?)", gunEkle(400), t);
+    run("INSERT INTO personel_belgeleri(id,kullanici_id,tur,no,bitis,notlar,kaydeden,olusturma) VALUES('pb2','k-egitmen2','Sağlık raporu','',?,'','Örnek',?)", gunEkle(20), t);
+    run("INSERT INTO izinler(id,kullanici_id,bas,bit,tur,aciklama,kaydeden,olusturma) VALUES('iz1','k-egitmen3',?,?,'Yıllık izin','','Örnek',?)", gunEkle(10), gunEkle(14), t);
 
     // Dönemler ve teorik gruplar
     const ay = bugun.slice(0, 7);

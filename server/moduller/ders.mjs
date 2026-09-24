@@ -37,6 +37,7 @@ export function bosSaatler(c, o, tarih) {
   const sure = a.dersSuresi;
   const sonuc = [];
   if (!o.egitmen_id) return sonuc;
+  if (c.q1('SELECT 1 FROM izinler WHERE kullanici_id=? AND bas<=? AND bit>=?', o.egitmen_id, tarih, tarih)) return sonuc;
   const bas = dk(a.ogrenciDersSecimi.bas), bit = dk(a.ogrenciDersSecimi.bit);
   const simdiDk = tarih === c.bugunStr() ? (() => { const d = c.saatKaynagi(); return d.getHours() * 60 + d.getMinutes() + 60; })() : 0;
   for (let m = bas; m + sure <= bit; m += 60) {

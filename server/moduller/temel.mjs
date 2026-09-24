@@ -1,6 +1,7 @@
 // Şubeler, personel, görevlendirme, araçlar ve kurum ayarları.
 import { randomUUID } from 'node:crypto';
 import { fail, metin, gun, tamSayi, secim } from '../domain.mjs';
+import { sutunEkle } from '../db.mjs';
 
 const simdi = () => new Date().toISOString();
 const saatDogru = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
@@ -13,7 +14,14 @@ CREATE TABLE IF NOT EXISTS araclar(id TEXT PRIMARY KEY, sube_id TEXT NOT NULL RE
   model TEXT NOT NULL DEFAULT '', sinif TEXT NOT NULL DEFAULT 'B', aktif INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS gorevlendirmeler(id TEXT PRIMARY KEY, kullanici_id TEXT NOT NULL REFERENCES kullanicilar(id),
   sube_id TEXT NOT NULL REFERENCES subeler(id), bas TEXT NOT NULL, bit TEXT NOT NULL, aciklama TEXT NOT NULL DEFAULT '', kaydeden TEXT NOT NULL, olusturma TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS personel_belgeleri(id TEXT PRIMARY KEY, kullanici_id TEXT NOT NULL REFERENCES kullanicilar(id), tur TEXT NOT NULL,
+  no TEXT NOT NULL DEFAULT '', bitis TEXT NOT NULL DEFAULT '', notlar TEXT NOT NULL DEFAULT '', kaydeden TEXT NOT NULL, olusturma TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS izinler(id TEXT PRIMARY KEY, kullanici_id TEXT NOT NULL REFERENCES kullanicilar(id), bas TEXT NOT NULL, bit TEXT NOT NULL,
+  tur TEXT NOT NULL, aciklama TEXT NOT NULL DEFAULT '', kaydeden TEXT NOT NULL, olusturma TEXT NOT NULL);
 `);
+    // Araç takibi (karar 22): sonradan eklenen sütunlar. Eski kayıtlar olduğu gibi açılır.
+    for (const [s, t] of [['km', 'INTEGER'], ['muayene', "TEXT NOT NULL DEFAULT ''"], ['sigorta', "TEXT NOT NULL DEFAULT ''"], ['kasko', "TEXT NOT NULL DEFAULT ''"],
+      ['bakim', "TEXT NOT NULL DEFAULT ''"], ['bakim_km', 'INTEGER'], ['notlar', "TEXT NOT NULL DEFAULT ''"]]) sutunEkle(db, 'araclar', s, t);
   },
 
   veri(c, k, v) {
@@ -31,6 +39,11 @@ CREATE TABLE IF NOT EXISTS gorevlendirmeler(id TEXT PRIMARY KEY, kullanici_id TE
       v.personel = c.q(`SELECT id,ad,rol,sube_id,aktif FROM kullanicilar WHERE aktif=1 AND (${kps === null ? '1=1' : "sube_id=? OR rol='yonetici'" + gorevliSart}) ORDER BY ad`, ...sp, ...gorevliler);
     }
     v.araclar = c.q(`SELECT * FROM araclar WHERE ${subeSart} ORDER BY plaka`, ...sp);
+    if (c.hak(k, 'personel')) {
+      const ids = new Set(v.personel.map((p) => p.id));
+      v.personelBelgeleri = c.q('SELECT * FROM personel_belgeleri ORDER BY bitis').filter((b) => ids.has(b.kullanici_id));
+      v.izinler = c.q('SELECT * FROM izinler WHERE bit>=? ORDER BY bas', gunOnce(c.bugunStr(), 60)).filter((b) => ids.has(b.kullanici_id));
+    }
     v.gorevlendirmeler = c.q(`SELECT * FROM gorevlendirmeler WHERE ${subeSart} AND bit>=? ORDER BY bas`, ...sp, c.bugunStr());
     if (k.rol === 'egitmen') v.gorevlendirmeler = v.gorevlendirmeler.filter((g) => g.kullanici_id === k.id)
       .concat(c.q('SELECT * FROM gorevlendirmeler WHERE kullanici_id=? AND bit>=?', k.id, c.bugunStr()).filter((g) => g.sube_id !== k.sube_id));
@@ -124,6 +137,7 @@ CREATE TABLE IF NOT EXISTS gorevlendirmeler(id TEXT PRIMARY KEY, kullanici_id TE
       if (c.q1('SELECT 1 FROM araclar WHERE plaka=?', plaka)) fail('Bu plaka zaten kayıtlı.');
       const id = randomUUID();
       c.run('INSERT INTO araclar(id,sube_id,plaka,model,sinif,aktif) VALUES(?,?,?,?,?,1)', id, g.subeId, plaka, metin(g.model, 60), secim(g.sinif || 'B', Object.keys(c.ayar().siniflar), 'Sınıf'));
+      aracTakip(c, id, g, {});
       return { sonuc: { id }, olay: [g.subeId, 'arac', `Araç eklendi: ${plaka}`] };
     },
     arac_duzenle(c, k, g) {
@@ -134,7 +148,39 @@ CREATE TABLE IF NOT EXISTS gorevlendirmeler(id TEXT PRIMARY KEY, kullanici_id TE
       const subeId = g.subeId || a.sube_id;
       c.subeIzinli(k, subeId);
       c.run('UPDATE araclar SET model=?,sinif=?,aktif=?,sube_id=? WHERE id=?', metin(g.model ?? a.model, 60), secim(g.sinif ?? a.sinif, Object.keys(c.ayar().siniflar), 'Sınıf'), g.aktif === undefined ? a.aktif : g.aktif ? 1 : 0, subeId, a.id);
+      aracTakip(c, a.id, g, a);
       return { olay: [subeId, 'arac', `Araç güncellendi: ${a.plaka}`] };
+    },
+
+    personel_belge_ekle(c, k, g) {
+      const p = personelAl(c, k, g.kullaniciId);
+      c.run('INSERT INTO personel_belgeleri(id,kullanici_id,tur,no,bitis,notlar,kaydeden,olusturma) VALUES(?,?,?,?,?,?,?,?)',
+        randomUUID(), p.id, metin(g.tur, 60, true, 'Belge'), metin(g.no, 40), gun(g.bitis, 'Bitiş', false), metin(g.notlar, 200), k.ad, simdi());
+      return { olay: [p.sube_id, 'personel', `${p.ad} için belge kaydedildi: ${g.tur}`] };
+    },
+    personel_belge_sil(c, k, g) {
+      const b = c.q1('SELECT * FROM personel_belgeleri WHERE id=?', metin(g.id, 60, true));
+      if (!b) fail('Belge bulunamadı.', 404);
+      const p = personelAl(c, k, b.kullanici_id);
+      c.run('DELETE FROM personel_belgeleri WHERE id=?', b.id);
+      return { olay: [p.sube_id, 'personel', `${p.ad} belge kaydı silindi: ${b.tur}`] };
+    },
+    // İzinli eğitmene o günlerde ders planlanamaz.
+    izin_ekle(c, k, g) {
+      const p = personelAl(c, k, g.kullaniciId);
+      const bas = gun(g.bas, 'Başlangıç'), bit = gun(g.bit, 'Bitiş');
+      if (bas > bit) fail('Başlangıç bitişten sonra olamaz.');
+      const planli = c.q1("SELECT COUNT(*) n FROM dersler WHERE egitmen_id=? AND durum='planli' AND tarih BETWEEN ? AND ?", p.id, bas, bit).n;
+      c.run('INSERT INTO izinler(id,kullanici_id,bas,bit,tur,aciklama,kaydeden,olusturma) VALUES(?,?,?,?,?,?,?,?)',
+        randomUUID(), p.id, bas, bit, metin(g.tur, 40, true, 'İzin türü'), metin(g.aciklama, 200), k.ad, simdi());
+      return { sonuc: { planli }, olay: [p.sube_id, 'personel', `${p.ad} izinli: ${bas} - ${bit} (${g.tur})${planli ? ` · bu günlerde ${planli} planlı dersi var, başka eğitmene aktarılmalı` : ''}`] };
+    },
+    izin_sil(c, k, g) {
+      const x = c.q1('SELECT * FROM izinler WHERE id=?', metin(g.id, 60, true));
+      if (!x) fail('İzin bulunamadı.', 404);
+      const p = personelAl(c, k, x.kullanici_id);
+      c.run('DELETE FROM izinler WHERE id=?', x.id);
+      return { olay: [p.sube_id, 'personel', `${p.ad} izin kaydı silindi`] };
     },
 
     // Kurum ayarları: yalnız yönetici. Her bölüm ayrı doğrulanır.
@@ -205,6 +251,24 @@ function personelYetkiDenetle(c, k, rol, subeId) {
   if (rol === 'yonetici') return null;
   c.subeIzinli(k, subeId);
   return subeId;
+}
+function personelAl(c, k, id) {
+  c.hakGerek(k, 'personel');
+  const p = c.q1('SELECT * FROM kullanicilar WHERE id=?', metin(id, 60, true, 'Personel'));
+  if (!p || (k.rol !== 'yonetici' && p.sube_id !== k.sube_id)) fail('Personel bulunamadı.', 404);
+  return p;
+}
+function gunOnce(g, n) { return new Date(Date.parse(g + 'T12:00:00Z') - n * 86400000).toISOString().slice(0, 10); }
+function aracTakip(c, id, g, a) {
+  const say = (v, ad) => (v === '' || v === null || v === undefined ? null : tamSayi(v, 0, 5_000_000, ad));
+  c.run('UPDATE araclar SET km=?, muayene=?, sigorta=?, kasko=?, bakim=?, bakim_km=?, notlar=? WHERE id=?',
+    g.km !== undefined ? say(g.km, 'Kilometre') : a.km ?? null,
+    g.muayene !== undefined ? gun(g.muayene, 'Muayene', false) : a.muayene ?? '',
+    g.sigorta !== undefined ? gun(g.sigorta, 'Sigorta', false) : a.sigorta ?? '',
+    g.kasko !== undefined ? gun(g.kasko, 'Kasko', false) : a.kasko ?? '',
+    g.bakim !== undefined ? gun(g.bakim, 'Bakım', false) : a.bakim ?? '',
+    g.bakimKm !== undefined ? say(g.bakimKm, 'Bakım km') : a.bakim_km ?? null,
+    g.notlar !== undefined ? metin(g.notlar, 300) : a.notlar ?? '', id);
 }
 function hakListesi(c, v) {
   if (v === undefined || v === null) return null;

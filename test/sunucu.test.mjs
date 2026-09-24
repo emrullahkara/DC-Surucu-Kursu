@@ -401,3 +401,20 @@ test('duyuru: şube duyurusu yalnız o şubenin öğrencisine görünür', async
   ov = await istek('/api/ogrenci', { cerez: g.cerez });
   assert.ok(ov.j.duyurular.some((d) => d.baslik === 'Bayram tatili'));
 });
+
+test('araç ve personel: takip tarihleri, belge, izinli eğitmene ders planlanamaz', async () => {
+  const mud = await gir('mudur', 'yonetici');
+  tamam(await islem(mud, { islem: 'arac_duzenle', id: 'a1', km: 61000, muayene: gunEkle(3), bakimKm: 62000 }));
+  let v = await veri(mud);
+  const a = v.araclar.find((x) => x.id === 'a1');
+  assert.equal(a.km, 61000);
+  assert.equal(a.muayene, gunEkle(3));
+  assert.ok(v.personelBelgeleri.some((b) => b.kullanici_id === 'k-egitmen1'));
+  assert.equal((await islem(mud, { islem: 'izin_ekle', kullaniciId: 'k-egitmen3', tur: 'Rapor', bas: gunEkle(1), bit: gunEkle(2) })).durum, 404, 'başka şubenin personeline izin girilemez');
+  const r = await islem(mud, { islem: 'izin_ekle', kullaniciId: 'k-egitmen2', tur: 'Rapor', bas: gunEkle(30), bit: gunEkle(31) });
+  tamam(r);
+  const d = await islem(mud, { islem: 'ders_planla', ogrenciId: 'o5', egitmenId: 'k-egitmen2', dersTuru: 'direksiyon', tarih: gunEkle(30), saat: '12:00' });
+  assert.equal(d.durum, 400);
+  assert.match(d.j.hata, /izinli/);
+  assert.equal((await islem(await gir('buro', 'personel'), { islem: 'personel_belge_ekle', kullaniciId: 'k-egitmen1', tur: 'X' })).durum, 403);
+});
