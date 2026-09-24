@@ -234,6 +234,14 @@ test('para: kayıt, peşinat, ödeme, iade, indirim, ek kalem ve gün sonu', asy
   tamam(r);
   assert.equal(r.j.fark, -500);
   assert.equal((await islem(muh, { islem: 'gun_sonu', subeId: 'sube-cankaya', sayilan: 0 })).durum, 400, 'aynı gün iki kez kapatılamaz');
+  // Kapatılmış güne nakit kayıt girilemez; kart girilebilir; yönetici gerekçe yazarak girebilir.
+  assert.equal((await islem(buro, { islem: 'odeme_al', ogrenciId: id, tutar: 1000, yontem: 'nakit' })).durum, 409, 'kapalı güne nakit girilemez');
+  assert.equal((await islem(muh, { islem: 'gider_ekle', subeId: 'sube-cankaya', tutar: 1000, kategori: 'Diğer', tarih: gunEkle(-3) })).durum, 409, 'kapalı günden önceki güne de girilemez');
+  tamam(await islem(buro, { islem: 'odeme_al', ogrenciId: id, tutar: 1000, yontem: 'kart' }));
+  const yon = await gir('patron', 'yonetici');
+  assert.equal((await islem(yon, { islem: 'odeme_al', ogrenciId: id, tutar: 1000, yontem: 'nakit' })).durum, 409, 'yönetici de gerekçesiz giremez');
+  tamam(await islem(yon, { islem: 'odeme_al', ogrenciId: id, tutar: 1000, yontem: 'nakit', gerekce: 'Makbuz sonradan getirildi' }));
+  tamam(await islem(buro, { islem: 'odeme_al', ogrenciId: id, tutar: 1000, yontem: 'nakit', tarih: gunEkle(1) }));
 });
 
 test('tedarikçi: veresiye gider borç yazar, ödeme borçtan düşer, fazla ödeme girilmez', async () => {
@@ -350,7 +358,9 @@ test('rapor: müdür kendi şubesini, yönetici hepsini alır; eğitmen alamaz; 
   assert.equal(y.j.satirlar.length, 3);
   assert.equal(y.j.toplam.tahsilat, y.j.satirlar.reduce((a, x) => a + x.tahsilat, 0));
   const e = y.j.egitmenler.find((x) => x.direksiyon > 0);
-  assert.equal(e.prim, e.direksiyon * 20000 + e.teorik * 10000);
+  assert.equal(e.prim, e.direksiyon * 20000 + (e.teorik + e.grupTeorik) * 10000);
+  const t = y.j.egitmenler.find((x) => x.id === 'k-egitmen2');
+  assert.ok(t.grupTeorik > 0, 'grup teorik dersleri (yoklama alınmış) eğitmene sayılır');
   assert.equal((await istek(`/api/rapor?bas=${bas}&bit=${bit}`, { cerez: await gir('egitmen1', 'personel') })).durum, 403);
 });
 
@@ -510,8 +520,8 @@ test('canlı akış yetkiye göre süzülür: eğitmen ödeme tutarını, büro 
     while (!m.includes('event: degisti')) m += new TextDecoder().decode((await okuyucu.read()).value);
     return m;
   })();
-  tamam(await islem(buro, { islem: 'odeme_al', ogrenciId: 'o5', tutar: 1000 }));
-  tamam(await islem(muh, { islem: 'gider_ekle', subeId: 'sube-cankaya', tutar: 777, kategori: 'Kırtasiye' }));
+  tamam(await islem(buro, { islem: 'odeme_al', ogrenciId: 'o5', tutar: 1000, yontem: 'kart' }));
+  tamam(await islem(muh, { islem: 'gider_ekle', subeId: 'sube-cankaya', tutar: 777, kategori: 'Kırtasiye', yontem: 'kart' }));
   const ogr = (await veri(eg)).ogrenciler.find((o) => o.egitmen_id === 'k-egitmen1' && o.durum === 'aktif');
   tamam(await islem(eg, { islem: 'ders_saha', ogrenciId: ogr.id, dersTuru: 'direksiyon' }));
   const m = await ilkOlay;

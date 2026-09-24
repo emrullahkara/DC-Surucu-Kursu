@@ -3,8 +3,9 @@
 //  - Firma kodu ekrana bir kez yazılır; tarayıcı hatırlar. Oturum çerezi firmaya özeldir.
 //  - Lisans süresi biten ya da kapatılan firma giriş yapamaz; kayıtları silinmez.
 //  - Platform yöneticisi (DC) firma açar, lisans uzatır. Firmaların içeriğini göremez.
-import { readFileSync, existsSync, statSync } from 'node:fs';
-import { resolve, extname, sep } from 'node:path';
+import { readFileSync, existsSync, statSync, mkdirSync, readdirSync, copyFileSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { resolve, extname, sep, basename } from 'node:path';
+import { anahtarCoz, yeniAnahtar } from './sifreleme.mjs';
 import { fileURLToPath } from 'node:url';
 import { nodeVeritabani } from './db.mjs';
 import { firmaAc } from './firma.mjs';
@@ -21,26 +22,107 @@ export function platformAc({
   bellekte = false,
   demo = process.env.ENABLE_DEMO === '1',
   guvenliCerez = process.env.SECURE_COOKIE === '1',
+  vekilGuvenilir = process.env.GUVENILIR_VEKIL === '1',
   statikDizin = [resolve(KOK, 'istemci', 'dist'), resolve(KOK, 'public')].find((d) => existsSync(resolve(d, 'index.html'))),
   saatKaynagi = () => new Date(),
+  // Otomatik yedek: her firma için günde bir kopya, son "yedekGunu" gün saklanır. 0 = kapalı.
+  yedekGunu = Number(process.env.YEDEK_GUNU ?? 30),
 } = {}) {
   const pdb = nodeVeritabani(bellekte ? ':memory:' : resolve(veriDizini, 'platform.sqlite'));
   const firmalar = new Map();
-  const { platformIstek, firmaBilgi, lisansDurumu, firmaOlustur, yoneticiEkle, yoneticiVar, q1, run } = platformCekirdegi({
+  const firmaYolu = (kod) => resolve(veriDizini, 'firmalar', `${kod}.sqlite`);
+  const yedekDizini = (kod) => resolve(veriDizini, 'yedekler', kod);
+
+  // Hassas bilgileri şifreleyen anahtar: VERI_ANAHTARI ortam değişkeni ya da veri klasöründeki ayrı dosya.
+  // Anahtar dosyası yedeklerle birlikte ayrıca saklanmalıdır; kaybolursa şifreli evrak açılamaz.
+  let veriAnahtari = anahtarCoz(process.env.VERI_ANAHTARI);
+  if (!veriAnahtari && bellekte) veriAnahtari = anahtarCoz(yeniAnahtar());
+  if (!veriAnahtari) {
+    const dosya = resolve(veriDizini, 'veri-anahtari.txt');
+    if (!existsSync(dosya)) { mkdirSync(veriDizini, { recursive: true }); writeFileSync(dosya, yeniAnahtar() + '\n', { mode: 0o600 }); try { chmodSync(dosya, 0o600); } catch { /* windows */ } }
+    veriAnahtari = anahtarCoz(readFileSync(dosya, 'utf8'));
+  }
+
+  const { platformIstek, firmaBilgi, lisansDurumu, firmaOlustur, yoneticiEkle, yoneticiVar, q, q1, run } = platformCekirdegi({
     pdb, saatKaynagi,
     firmaKur: (kod, g) => firmaMotoru(kod).kurulum(g),
     firmaSil: (kod) => { firmalar.get(kod)?.kapat(); firmalar.delete(kod); },
+    firmaOzet: (kod) => ({ ...firmaMotoru(kod).ozet(), boyutMb: bellekte ? 0 : Math.round((existsSync(firmaYolu(kod)) ? statSync(firmaYolu(kod)).size : 0) / 1048576 * 10) / 10 }),
+    ...(bellekte ? {} : { yedekler: yedekListesi, yedekAl, yedekDon }),
+    yoneticiKodu: (kod, kad, veren) => firmaMotoru(kod).yoneticiKoduUret(kad, veren),
   });
 
   function firmaMotoru(kod) {
     let f = firmalar.get(kod);
     if (!f) {
-      const db = nodeVeritabani(bellekte ? ':memory:' : resolve(veriDizini, 'firmalar', `${kod}.sqlite`));
-      f = firmaAc({ db, saatKaynagi, posDeneme: demo || process.env.POS_DENEME === '1', limit: () => ({ maxSube: q1('SELECT max_sube FROM firmalar WHERE kod=?', kod)?.max_sube ?? 1 }) });
+      const db = nodeVeritabani(bellekte ? ':memory:' : firmaYolu(kod));
+      f = firmaAc({ db, saatKaynagi, veriAnahtari, posDeneme: demo || process.env.POS_DENEME === '1',
+        limit: () => { const x = q1('SELECT max_sube, max_kullanici FROM firmalar WHERE kod=?', kod); return { maxSube: x?.max_sube ?? 1, maxKullanici: x?.max_kullanici ?? 0 }; } });
       firmalar.set(kod, f);
     }
     return f;
   }
+
+  // -------------------------------------------------------------------------
+  // YEDEK (bilgisayardaki sunucu). Veritabanı çalışırken tutarlı kopya alınır (VACUUM INTO).
+  // -------------------------------------------------------------------------
+  const zamanDamgasi = () => new Date(saatKaynagi()).toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
+  function yedekListesi(kod) {
+    const d = yedekDizini(kod);
+    if (!existsSync(d)) return [];
+    return readdirSync(d).filter((x) => x.endsWith('.sqlite')).sort().reverse()
+      .map((ad) => { const st = statSync(resolve(d, ad)); return { ad, zaman: st.mtime.toISOString(), boyut: st.size }; });
+  }
+  function yedekAl(kod, neden = 'gunluk') {
+    const d = yedekDizini(kod);
+    mkdirSync(d, { recursive: true });
+    const ad = `${kod}-${zamanDamgasi()}-${neden}.sqlite`;
+    const hedef = resolve(d, ad);
+    if (existsSync(hedef)) return { ad };
+    firmaMotoru(kod).ctx.db.exec(`VACUUM INTO '${hedef.replace(/'/g, "''")}'`);
+    return { ad };
+  }
+  function yedekDon(kod, { ad }) {
+    const liste = yedekListesi(kod);
+    const secilen = liste.find((x) => x.ad === basename(ad || ''));
+    if (!secilen) fail('Yedek bulunamadı.', 404);
+    // Dönmeden önce bugünkü hal de yedeklenir; yanlış yedeğe dönülürse geri alınabilir.
+    yedekAl(kod, 'donus-oncesi');
+    firmalar.get(kod)?.kapat();
+    firmalar.delete(kod);
+    for (const ek of ['', '-wal', '-shm']) rmSync(firmaYolu(kod) + ek, { force: true });
+    copyFileSync(resolve(yedekDizini(kod), secilen.ad), firmaYolu(kod));
+    firmaMotoru(kod);
+    return { ad: secilen.ad };
+  }
+  // Günlük yedek: bugünün yedeği yoksa alınır; "yedekGunu"nden eski günlük yedekler silinir.
+  function gunlukYedek() {
+    if (bellekte || !yedekGunu) return;
+    const bugunkuOn = zamanDamgasi().slice(0, 8);
+    for (const { kod } of q('SELECT kod FROM firmalar WHERE aktif=1')) {
+      try {
+        const l = yedekListesi(kod);
+        if (!l.some((x) => x.ad.startsWith(`${kod}-${bugunkuOn}`) && x.ad.endsWith('-gunluk.sqlite'))) yedekAl(kod, 'gunluk');
+        const sinir = new Date(saatKaynagi().getTime() - yedekGunu * 86400000).toISOString().slice(0, 10).replace(/-/g, '');
+        for (const x of yedekListesi(kod)) if (x.ad.slice(kod.length + 1, kod.length + 9) < sinir) rmSync(resolve(yedekDizini(kod), x.ad), { force: true });
+      } catch (e) { console.error(`Yedek alınamadı (${kod}):`, e.message); }
+    }
+    try {
+      mkdirSync(resolve(veriDizini, 'yedekler'), { recursive: true });
+      const hedef = resolve(veriDizini, 'yedekler', `platform-${bugunkuOn}.sqlite`);
+      if (!existsSync(hedef)) pdb.exec(`VACUUM INTO '${hedef.replace(/'/g, "''")}'`);
+    } catch (e) { console.error('Platform yedeği alınamadı:', e.message); }
+  }
+  // Zamanlanmış işler (günlük yedek, hatırlatmalar): açılışta ve her 10 dakikada bir.
+  function zamanliIsler() {
+    gunlukYedek();
+    for (const { kod } of q('SELECT kod FROM firmalar WHERE aktif=1')) {
+      if (lisansDurumu(firmaBilgi(kod)) !== 'acik') continue;
+      firmaMotoru(kod).zamanli?.().catch?.((e) => console.error(`Zamanlı iş hatası (${kod}):`, e.message));
+    }
+  }
+  const zamanlayici = bellekte ? null : setInterval(zamanliIsler, 10 * 60 * 1000);
+  zamanlayici?.unref?.();
 
   // Platform yöneticisi ortam değişkeniyle ya da (yalnız bu bilgisayardan) ilk kurulumla oluşur.
   if (process.env.PLATFORM_KULLANICI && process.env.PLATFORM_SIFRE && !yoneticiVar()) yoneticiEkle(process.env.PLATFORM_KULLANICI, process.env.PLATFORM_SIFRE);
@@ -110,10 +192,17 @@ export function platformAc({
       const posBildirim = yol.startsWith('/api/pos-bildirim/');
       if (req.method === 'POST' && !posBildirim && req.headers['x-dc'] !== '1') fail('Geçersiz istek.', 403);
       const cerezler = cerezOku(req);
-      const yerel = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
+      // Önünde vekil sunucu (nginx vb.) varsa her istek bilgisayarın kendisinden geliyor görünür; bu yüzden
+      // yönlendirme başlığı taşıyan istek hiçbir zaman "yerel" sayılmaz.
+      const yonlendirilmis = !!(req.headers['x-forwarded-for'] || req.headers['forwarded'] || req.headers['x-real-ip']);
+      const yerel = !yonlendirilmis && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
+      // Kullanıcının adresi: yalnız vekile güvenildiği açıkça belirtilmişse (GUVENILIR_VEKIL=1) başlıktan okunur;
+      // yoksa herkes başlığı değiştirerek hatalı giriş sınırını atlatabilirdi.
+      const ip = String((vekilGuvenilir && req.headers['x-forwarded-for']) || req.socket.remoteAddress || '').split(',')[0].trim().replace(/^::ffff:/, '');
 
       if (yol.startsWith('/api/platform/')) {
-        const r = await platformIstek({ yontem: req.method, yol, govde: req.method === 'POST' ? await govdeOku(req) : {}, cerezler, yerel });
+        const r = await platformIstek({ yontem: req.method, yol, govde: req.method === 'POST' ? await govdeOku(req) : {}, cerezler, yerel, ip, sorgu: url.searchParams });
+        if (r.ham) { res.writeHead(r.durum, { ...GUVENLIK, 'Cache-Control': 'no-store', ...r.ham.basliklar }); return res.end(r.ham.govde); }
         return json(res, r.durum, r.veri, r.cerez ? { 'Set-Cookie': cerezYaz(r.cerez) } : {});
       }
 
@@ -123,7 +212,7 @@ export function platformAc({
       if (yol === '/api/firma' && req.method === 'GET') {
         if (!f) return json(res, 404, { hata: 'Bu kodla bir kurum bulunamadı.' });
         const d = await firmaMotoru(f.kod).istek({ yontem: 'GET', yol: '/api/durum' });
-        return json(res, 200, { kod: f.kod, ad: d.veri.kurum || f.ad, logo: d.veri.logo || '', lisans: lisansDurumu(f), demo: f.kod === 'ornek' && demo });
+        return json(res, 200, { kod: f.kod, ad: d.veri.kurum || f.ad, logo: d.veri.logo || '', lisans: lisansDurumu(f), lisansBitis: f.lisans_bitis, demo: f.kod === 'ornek' && demo, onKayit: !!d.veri.onKayit });
       }
       if (!f) fail('Kurum kodu bulunamadı. Giriş ekranından kurum kodunuzu yazın.', 404);
       const lisans = lisansDurumu(f);
@@ -132,16 +221,17 @@ export function platformAc({
       const cerezAd = `dc_${f.kod.replace(/-/g, '_')}`;
 
       if (yol === '/api/canli' && req.method === 'GET') {
-        const iptal = motor.abone(cerezler[cerezAd], (olay) => res.write(`event: degisti\ndata: ${JSON.stringify(olay)}\n\n`));
+        let nabiz;
+        // Oturum kapanınca (çıkış, girişi kapatma, şifre değişikliği) akış sunucu tarafından kesilir.
+        const iptal = motor.abone(cerezler[cerezAd], (olay) => res.write(`event: degisti\ndata: ${JSON.stringify(olay)}\n\n`), () => { clearInterval(nabiz); res.end(); });
         if (!iptal) fail('Oturum kapalı.', 401);
         res.writeHead(200, { ...GUVENLIK, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
         res.write(': baglandi\n\n');
-        const nabiz = setInterval(() => res.write(': nabiz\n\n'), 25000);
+        nabiz = setInterval(() => { motor.dinleyicileriDenetle(); res.write(': nabiz\n\n'); }, 25000);
         req.on('close', () => { clearInterval(nabiz); iptal(); });
         return;
       }
       const govde = req.method === 'POST' ? await govdeOku(req) : {};
-      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim().replace(/^::ffff:/, '');
       const koken = process.env.GENEL_ADRES || `${guvenliCerez ? 'https' : 'http'}://${req.headers.host}`;
       const r = await motor.istek({ yontem: req.method, yol: posBildirim ? '/api/pos-bildirim' : yol, sorgu: url.searchParams, oturum: cerezler[cerezAd], govde, firmaKodu: f.kod, ip, koken, saglayici: posBildirim ? yol.split('/')[4] : '' });
       const basliklar = {};
@@ -156,7 +246,7 @@ export function platformAc({
   }
 
   return {
-    handler, firmaOlustur, firmaMotoru,
-    kapat() { for (const f of firmalar.values()) f.kapat(); firmalar.clear(); pdb.kapat(); },
+    handler, firmaOlustur, firmaMotoru, zamanliIsler, yedekAl, yedekListesi,
+    kapat() { clearInterval(zamanlayici); for (const f of firmalar.values()) f.kapat(); firmalar.clear(); pdb.kapat(); },
   };
 }

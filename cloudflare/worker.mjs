@@ -12,6 +12,7 @@ import { firmaAc } from '../server/firma.mjs';
 import { platformCekirdegi } from '../server/platform-cekirdek.mjs';
 import { ornekFirmaDoldur } from '../server/ornek.mjs';
 import { IsHatasi } from '../server/domain.mjs';
+import { anahtarCoz } from '../server/sifreleme.mjs';
 
 // ---------------------------------------------------------------------------
 // Durable Object SQLite ara katmanı: server/db.mjs ile aynı dört işlev.
@@ -67,12 +68,19 @@ export class PlatformDO extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.env = env;
+    const ic = async (kod, yol, govde) => {
+      const r = await firmaStub(env, kod).fetch(`https://ic/ic/${yol}`, govde === undefined ? {} : { method: 'POST', body: JSON.stringify(govde) });
+      const j = await r.json();
+      if (!r.ok) throw new IsHatasi(j.hata || 'İşlem yapılamadı.', r.status);
+      return j;
+    };
     this.p = platformCekirdegi({
       pdb: doVeritabani(ctx.storage),
-      firmaKur: async (kod, g) => {
-        const r = await firmaStub(env, kod).fetch('https://ic/ic/kurulum', { method: 'POST', body: JSON.stringify(g) });
-        if (!r.ok) throw new IsHatasi((await r.json()).hata || 'Firma kurulamadı.', r.status);
-      },
+      firmaKur: (kod, g) => ic(kod, 'kurulum', g),
+      firmaOzet: (kod) => ic(kod, 'ozet'),
+      // Bulutta dosya yedeği yoktur: Durable Object son 30 gün içindeki herhangi bir ana geri döndürülebilir.
+      yedekDon: (kod, { zaman }) => ic(kod, 'geri-don', { zaman }),
+      yoneticiKodu: (kod, kullaniciAdi, veren) => ic(kod, 'yonetici-kodu', { kullaniciAdi, veren }),
     });
     this.hazir = ctx.blockConcurrencyWhile(async () => {
       if (env.PLATFORM_KULLANICI && env.PLATFORM_SIFRE && !this.p.yoneticiVar()) this.p.yoneticiEkle(env.PLATFORM_KULLANICI, env.PLATFORM_SIFRE);
@@ -94,7 +102,8 @@ export class PlatformDO extends DurableObject {
         return json(200, f ? { ...f, lisans: this.p.lisansDurumu(f) } : null);
       }
       // Bulutta "sunucunun kendi bilgisayarı" yoktur; ilk yönetici PLATFORM_KULLANICI / PLATFORM_SIFRE ile oluşur.
-      const r = await this.p.platformIstek({ yontem: req.method, yol: url.pathname, govde: await govdeOku(req), cerezler: cerezOku(req), yerel: false });
+      const r = await this.p.platformIstek({ yontem: req.method, yol: url.pathname, govde: await govdeOku(req), cerezler: cerezOku(req), yerel: false,
+        ip: req.headers.get('cf-connecting-ip') || '', sorgu: url.searchParams });
       return json(r.durum, r.veri, r.cerez ? { 'Set-Cookie': cerezYaz(r.cerez) } : {});
     } catch (e) { return hataYaniti(e); }
   }
@@ -106,23 +115,51 @@ export class PlatformDO extends DurableObject {
 export class FirmaDO extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
+    this.ctx = ctx;
     this.maxSube = 1;
+    this.maxKullanici = 0;
     this.motor = firmaAc({
       db: doVeritabani(ctx.storage),
       posDeneme: env.ENABLE_DEMO === '1' || env.POS_DENEME === '1',
-      limit: () => ({ maxSube: this.maxSube }),
+      // Hassas bilgiler (evrak, anahtarlar) VERI_ANAHTARI gizli değişkeniyle şifrelenir (wrangler secret put VERI_ANAHTARI).
+      veriAnahtari: anahtarCoz(env.VERI_ANAHTARI),
+      limit: () => ({ maxSube: this.maxSube, maxKullanici: this.maxKullanici }),
       disIstek: (...a) => fetch(...a),
     });
+  }
+  // Zamanlanmış işler (hatırlatmalar): yarım saatte bir. İlk istek alarmı kurar.
+  async alarmKur() {
+    if ((await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(Date.now() + 30 * 60 * 1000);
+  }
+  async alarm() {
+    await this.motor.zamanli();
+    await this.ctx.storage.setAlarm(Date.now() + 30 * 60 * 1000);
   }
   async fetch(req) {
     const url = new URL(req.url);
     try {
       if (url.pathname === '/ic/kurulum') { this.motor.kurulum(await req.json()); return json(200, { tamam: true }); }
+      if (url.pathname === '/ic/ozet') return json(200, { ...this.motor.ozet(), boyutMb: Math.round(this.ctx.storage.sql.databaseSize / 1048576 * 10) / 10 });
+      if (url.pathname === '/ic/yonetici-kodu') { const g = await req.json(); return json(200, this.motor.yoneticiKoduUret(g.kullaniciAdi, g.veren)); }
+      // Zamanda geri dönüş: istenen andaki hale dönülür, nesne yeniden başlar. Dönmeden önceki an da kayıtlıdır
+      // (yanlış ana dönülürse o ana yeniden dönülebilir).
+      if (url.pathname === '/ic/geri-don') {
+        const { zaman } = await req.json();
+        const ms = Date.parse(zaman);
+        if (!Number.isFinite(ms) || ms > Date.now() || ms < Date.now() - 30 * 86400000) throw new IsHatasi('Son 30 gün içinde bir an seçin.');
+        const onceki = await this.ctx.storage.getCurrentBookmark();
+        const im = await this.ctx.storage.getBookmarkForTime(ms);
+        await this.ctx.storage.onNextSessionRestoreBookmark(im);
+        setTimeout(() => this.ctx.abort('yedekten dönüş'), 50);
+        return json(200, { tamam: true, oncekiIsaret: onceki });
+      }
       if (url.pathname === '/ic/ornek') {
         if (!this.motor.ctx.q1('SELECT 1 FROM kullanicilar LIMIT 1')) ornekFirmaDoldur(this.motor.ctx);
         return json(200, { tamam: true });
       }
       this.maxSube = Number(req.headers.get('x-dc-max-sube') || 1);
+      this.maxKullanici = Number(req.headers.get('x-dc-max-kullanici') || 0);
+      this.ctx.waitUntil(this.alarmKur());
       const kod = req.headers.get('x-dc-kod') || '';
       const cerezAd = `dc_${kod.replace(/-/g, '_')}`;
       const cerezler = cerezOku(req);
@@ -132,11 +169,13 @@ export class FirmaDO extends DurableObject {
         const { readable, writable } = new TransformStream();
         const yazici = writable.getWriter();
         const kodla = new TextEncoder();
-        const iptal = this.motor.abone(cerezler[cerezAd], (o) => { yazici.write(kodla.encode(`event: degisti\ndata: ${JSON.stringify(o)}\n\n`)).catch(() => {}); });
+        let nabiz;
+        const kapat = () => { clearInterval(nabiz); iptal?.(); yazici.close().catch(() => {}); };
+        const iptal = this.motor.abone(cerezler[cerezAd], (o) => { yazici.write(kodla.encode(`event: degisti\ndata: ${JSON.stringify(o)}\n\n`)).catch(() => {}); },
+          () => { clearInterval(nabiz); yazici.close().catch(() => {}); });
         if (!iptal) return json(401, { hata: 'Oturum kapalı.' });
         yazici.write(kodla.encode(': baglandi\n\n'));
-        const nabiz = setInterval(() => yazici.write(kodla.encode(': nabiz\n\n')).catch(() => kapat()), 25000);
-        const kapat = () => { clearInterval(nabiz); iptal(); yazici.close().catch(() => {}); };
+        nabiz = setInterval(() => { this.motor.dinleyicileriDenetle(); yazici.write(kodla.encode(': nabiz\n\n')).catch(() => kapat()); }, 25000);
         req.signal?.addEventListener('abort', kapat);
         return new Response(readable, { headers: { ...GUVENLIK, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } });
       }
@@ -174,7 +213,7 @@ export default {
       if (url.pathname === '/api/firma') {
         if (!f) return json(404, { hata: 'Bu kodla bir kurum bulunamadı.' });
         const d = await (await firmaStub(env, f.kod).fetch(new Request('https://ic/api/durum', { headers: { 'x-dc-kod': f.kod } }))).json();
-        return json(200, { kod: f.kod, ad: d.kurum || f.ad, logo: d.logo || '', lisans: f.lisans, demo: f.kod === 'ornek' && env.ENABLE_DEMO === '1' });
+        return json(200, { kod: f.kod, ad: d.kurum || f.ad, logo: d.logo || '', lisans: f.lisans, lisansBitis: f.lisans_bitis, demo: f.kod === 'ornek' && env.ENABLE_DEMO === '1', onKayit: !!d.onKayit });
       }
       if (!f) return json(404, { hata: 'Kurum kodu bulunamadı. Giriş ekranından kurum kodunuzu yazın.' });
       if (f.lisans !== 'acik' && !posBildirim)
@@ -182,6 +221,7 @@ export default {
       const ic = new Request(req);
       ic.headers.set('x-dc-kod', f.kod);
       ic.headers.set('x-dc-max-sube', String(f.max_sube));
+      ic.headers.set('x-dc-max-kullanici', String(f.max_kullanici || 0));
       return firmaStub(env, f.kod).fetch(ic);
     } catch (e) { return hataYaniti(e); }
   },

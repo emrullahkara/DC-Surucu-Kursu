@@ -7,6 +7,7 @@ const host = process.env.HOST || '0.0.0.0';
 const platform = platformAc(process.env.VERI_DIZINI ? { veriDizini: process.env.VERI_DIZINI } : {});
 const sunucu = createServer((req, res) => platform.handler(req, res));
 sunucu.listen(port, host, () => {
+  platform.zamanliIsler();
   console.log(`DC Sürücü Kursu çalışıyor: http://localhost:${port}`);
   if (process.env.ENABLE_DEMO === '1')
     console.log('Örnek kurum açık. Kurum kodu: ornek · yetkili: patron / Deneme123! · platform: /platform (dc / Deneme123!)');

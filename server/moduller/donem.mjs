@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS yoklamalar(id TEXT PRIMARY KEY, oturum_id TEXT NOT NU
       if (!o || o.durum === 'iptal') fail('Ders bulunamadı.', 404);
       const gr = grupAl(c, k, o.grup_id);
       if (!c.hak(k, 'ders') && o.egitmen_id !== k.id) fail('Yalnız dersi veren eğitmen yoklama alabilir.', 403);
+      if (o.tarih > c.bugunStr()) fail('Henüz yapılmamış dersin yoklaması alınamaz.');
       if (!Array.isArray(g.liste)) fail('Yoklama listesi geçersiz.');
       const uyeler = new Set(c.q('SELECT ogrenci_id FROM grup_uyeleri WHERE grup_id=?', gr.id).map((x) => x.ogrenci_id));
       c.run('DELETE FROM yoklamalar WHERE oturum_id=?', o.id);

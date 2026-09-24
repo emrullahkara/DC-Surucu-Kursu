@@ -33,9 +33,10 @@ export function ornekFirmaDoldur(c) {
     c.ayarYaz('ucretler', { ekDers: 150000, sinavTekrar: 100000 });
     c.ayarYaz('prim', { direksiyon: 20000, teorik: 10000 });
     const S = { merkez: 'sube-merkez', cankaya: 'sube-cankaya', kecioren: 'sube-kecioren' };
-    run('INSERT INTO subeler VALUES(?,?,?,?,1,1,?)', S.merkez, 'Merkez', 'Örnek Cad. No:1', '0312 000 00 01', t);
-    run('INSERT INTO subeler VALUES(?,?,?,?,0,1,?)', S.cankaya, 'Çankaya Şubesi', 'Deneme Sok. No:5', '0312 000 00 02', t);
-    run('INSERT INTO subeler VALUES(?,?,?,?,0,1,?)', S.kecioren, 'Keçiören Şubesi', 'Uydurma Bulvarı No:9', '0312 000 00 03', t);
+    const sube = (...a) => run('INSERT INTO subeler(id,ad,adres,telefon,merkez,aktif,olusturma,kod) VALUES(?,?,?,?,?,1,?,?)', ...a);
+    sube(S.merkez, 'Merkez', 'Örnek Cad. No:1', '0312 000 00 01', 1, t, 'MRK');
+    sube(S.cankaya, 'Çankaya Şubesi', 'Deneme Sok. No:5', '0312 000 00 02', 0, t, 'CNK');
+    sube(S.kecioren, 'Keçiören Şubesi', 'Uydurma Bulvarı No:9', '0312 000 00 03', 0, t, 'KEC');
     const s = sifreOzet(ORNEK.sifre);
     const kul = [
       ['k-patron', 'patron', 'Ayşe Patron', 'yonetici', null],

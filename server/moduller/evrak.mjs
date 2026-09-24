@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS evrak_dosyalari(evrak_id TEXT PRIMARY KEY REFERENCES 
       const { tip, b } = dosyaCoz(g.veri);
       const id = randomUUID();
       c.run('INSERT INTO evraklar(id,ogrenci_id,tur,ad,boyut,tip,kaydeden,olusturma) VALUES(?,?,?,?,?,?,?,?)', id, o.id, tur, metin(g.ad || tur, 120) || tur, b.length, tip, k.ad, simdi());
-      c.run('INSERT INTO evrak_dosyalari(evrak_id,veri) VALUES(?,?)', id, b);
+      c.run('INSERT INTO evrak_dosyalari(evrak_id,veri) VALUES(?,?)', id, c.sifre.sifrele(b));
       return { sonuc: { id }, olay: [o.sube_id, 'kayit', `${adSoyad(o)} için evrak yüklendi: ${tur}`] };
     },
     evrak_sil(c, k, g) {
@@ -83,7 +83,8 @@ CREATE TABLE IF NOT EXISTS evrak_dosyalari(evrak_id TEXT PRIMARY KEY REFERENCES 
       c.ogrenciAl(k, e.ogrenci_id);
       const d = c.q1('SELECT veri FROM evrak_dosyalari WHERE evrak_id=?', e.id);
       if (!d) fail('Dosya bulunamadı.', 404);
-      return { durum: 200, ham: { basliklar: { 'Content-Type': e.tip, 'Content-Disposition': `inline; filename="evrak.${e.tip === 'application/pdf' ? 'pdf' : 'jpg'}"` }, govde: Buffer.from(d.veri) } };
+      c.erisimYaz(k, e.ogrenci_id, 'evrak', `${e.tur} açıldı`);
+      return { durum: 200, ham: { basliklar: { 'Content-Type': e.tip, 'Content-Disposition': `inline; filename="evrak.${e.tip === 'application/pdf' ? 'pdf' : 'jpg'}"` }, govde: c.sifre.coz(d.veri) } };
     }
     return null;
   },
