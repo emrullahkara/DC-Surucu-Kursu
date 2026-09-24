@@ -52,10 +52,13 @@ export function secim(v, liste, ad = 'Seçim') {
   return v;
 }
 
-export const bugun = (d = new Date()) => {
-  const t = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-  return t.toISOString().slice(0, 10);
-};
+// Bütün tarih ve saatler Türkiye saatine göredir; sunucu hangi saat diliminde çalışırsa çalışsın (ör. bulut UTC).
+const TR = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+export function yerelZaman(d = new Date()) {
+  const p = Object.fromEntries(TR.formatToParts(d).map((x) => [x.type, x.value]));
+  return { tarih: `${p.year}-${p.month}-${p.day}`, saat: `${p.hour}:${p.minute}`, dakika: Number(p.hour) * 60 + Number(p.minute) };
+}
+export const bugun = (d = new Date()) => yerelZaman(d).tarih;
 
 // T.C. kimlik numarası doğrulama (resmi algoritma).
 export function tcGecerli(tc) {
