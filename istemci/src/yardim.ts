@@ -44,8 +44,14 @@ export const DERS_AD: Record<string, string> = { teorik: 'Teorik', direksiyon: '
 export const YONTEM: Record<string, string> = { nakit: 'Nakit', kart: 'Kredi kartı', havale: 'Havale / EFT', internet: 'İnternetten kart', veresiye: 'Veresiye' };
 
 // Excel'in doğrudan açtığı, Türkçe karakterleri bozmayan CSV (noktalı virgül ayraçlı).
+// "=", "+", "-", "@" ile başlayan yazılar Excel'de formül gibi çalışabilir; başına ' eklenir (sayılar hariç).
+function csvHucre(h: string | number) {
+  let t = String(h ?? '');
+  if (/^[=+\-@\t\r]/.test(t) && !/^-?[\d.,]+$/.test(t)) t = "'" + t;
+  return `"${t.replace(/"/g, '""')}"`;
+}
 export function csvIndir(ad: string, satirlar: (string | number)[][]) {
-  const csv = '﻿' + satirlar.map((s) => s.map((h) => `"${String(h ?? '').replace(/"/g, '""')}"`).join(';')).join('\r\n');
+  const csv = '﻿' + satirlar.map((s) => s.map(csvHucre).join(';')).join('\r\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   a.download = ad;

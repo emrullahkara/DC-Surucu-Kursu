@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS giris_denemeleri(anahtar TEXT PRIMARY KEY, sayi INTEG
 CREATE TABLE IF NOT EXISTS islem_kayit(istek_no TEXT PRIMARY KEY, kullanici_id TEXT NOT NULL, sonuc TEXT NOT NULL, zaman TEXT NOT NULL);
 `;
 
+const OLAY_HAK = { kasa: 'kasa', odeme: 'tahsilat', personel: 'personel', arac: 'personel', guvenlik: 'personel', ayar: 'personel' };
 const OTURUM_SURESI = 12 * 3600 * 1000;
 const KILIT_SINIRI = 5;
 const KILIT_SURESI = 15 * 60 * 1000;
@@ -140,7 +141,7 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
   // Her dinleyici kendi kapsamındaki (şubesindeki) olayları alır.
   const dinleyiciler = new Set();
   function yayinla(olay) {
-    for (const d of dinleyiciler) if (d.kapsam === null || d.kapsam === olay.sube_id || (d.egitmen && olay.egitmen === d.egitmen)) d.yaz(olay);
+    for (const d of dinleyiciler) if (olayGorebilir(d.k, olay)) d.yaz(olay);
   }
   function olayYaz(k, subeId, tur, yazi, ek = {}) {
     const zaman = simdi();
@@ -237,9 +238,18 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
     return s;
   }
 
+  // Canlı akıştaki ve özet ekranındaki olay yazısı, o bilgiyi görme yetkisi olmayana gönderilmez
+  // (ör. eğitmen ödeme tutarını, büro gideri görmez). Eğitmen yalnız kendi dersleriyle ilgili olayları alır.
+  function olayGorebilir(k, o) {
+    if (egitmenKisitli(k)) return !!o.egitmen && o.egitmen === k.id;
+    if (k.rol !== 'yonetici' && o.sube_id !== k.sube_id && !(o.egitmen && o.egitmen === k.id)) return false;
+    const gerekli = OLAY_HAK[o.tur];
+    return !gerekli || hak(k, gerekli);
+  }
+
   const ctx = {
     db, q, q1, run, islemde, bugunStr, saatKaynagi, simdi, ayar, ayarYaz, kapsam, subeIzinli, hak, hakGerek, egitmenKisitli,
-    ogrenciGorebilir, ogrenciAl, egitmenAl, aracAl, gorevli, hesap, odenenToplam, dersSayaci, olayYaz, etkinHaklar,
+    ogrenciGorebilir, ogrenciAl, egitmenAl, aracAl, gorevli, olayGorebilir, hesap, odenenToplam, dersSayaci, olayYaz, etkinHaklar,
     HAKLAR, ROLLER, VERILEBILIR, sifreKontrol, sifreOzet, sifreDogru, tcMaskele, limit, posDeneme, disIstek,
     // İşlem dışında (ör. ödeme bildirimi) kayıt yazıp canlı akışa duyurmak için.
     olayYayinla(kim, subeId, tur, yazi) { yayinla(olayYaz(kim, subeId, tur, yazi)); },
@@ -460,8 +470,7 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
   function abone(oturum, yaz) {
     const ot = oturumBul(oturum);
     if (!ot || ot.tur !== 'personel') return null;
-    const d = { kapsam: kapsam(ot.k), egitmen: egitmenKisitli(ot.k) ? ot.k.id : null, yaz };
-    if (d.egitmen) d.kapsam = ot.k.sube_id;
+    const d = { k: ot.k, yaz };
     dinleyiciler.add(d);
     return () => dinleyiciler.delete(d);
   }

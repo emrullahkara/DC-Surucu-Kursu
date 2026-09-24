@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS izinler(id TEXT PRIMARY KEY, kullanici_id TEXT NOT NU
     if (k.rol === 'egitmen') v.gorevlendirmeler = v.gorevlendirmeler.filter((g) => g.kullanici_id === k.id)
       .concat(c.q('SELECT * FROM gorevlendirmeler WHERE kullanici_id=? AND bit>=?', k.id, c.bugunStr()).filter((g) => g.sube_id !== k.sube_id));
     if (!c.egitmenKisitli(k))
-      v.olaylar = c.q(`SELECT * FROM olaylar WHERE ${kps === null ? '1=1' : 'sube_id=?'} ORDER BY id DESC LIMIT 80`, ...sp);
+      v.olaylar = c.q(`SELECT * FROM olaylar WHERE ${kps === null ? '1=1' : 'sube_id=?'} ORDER BY id DESC LIMIT 200`, ...sp)
+        .filter((o) => c.olayGorebilir(k, o)).slice(0, 80);
   },
 
   islemler: {
@@ -93,6 +94,7 @@ CREATE TABLE IF NOT EXISTS izinler(id TEXT PRIMARY KEY, kullanici_id TEXT NOT NU
       const rol = g.rol ?? p.rol;
       const subeId = g.subeId !== undefined ? g.subeId : p.sube_id;
       if (p.id === k.id) {
+        if (g.yeniSifre) fail('Kendi şifrenizi "Hesabım" bölümünden, eski şifrenizle değiştirin.');
         if (rol !== p.rol || (rol !== 'yonetici' && subeId !== p.sube_id) || g.aktif === false) fail('Kendi görevinizi, şubenizi veya girişinizi değiştiremezsiniz.');
       } else personelYetkiDenetle(c, k, rol, subeId);
       const yeniSube = rol === 'yonetici' ? null : subeId;

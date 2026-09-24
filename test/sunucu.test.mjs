@@ -497,3 +497,28 @@ test('PayTR: istek ve bildirim imzası belgelerdeki sırayla hesaplanır', async
   assert.equal(paytrIstekImzasi(p, a), createHmac('sha256', 'KEY').update('1231.2.3.4DC1a@b.c5000W10=10TL1SALT').digest('base64'));
   assert.equal(paytrBildirimImzasi(p, 'DC1', 'success', '5000'), createHmac('sha256', 'KEY').update('DC1SALTsuccess5000').digest('base64'));
 });
+
+test('canlı akış yetkiye göre süzülür: eğitmen ödeme tutarını, büro gideri görmez', async () => {
+  const eg = await gir('egitmen1', 'personel');
+  const buro = await gir('buro', 'personel');
+  const muh = await gir('muhasebe', 'personel');
+  const ac = new AbortController();
+  const akis = await fetch(adres + '/api/canli?firma=ornek', { headers: { cookie: eg }, signal: ac.signal });
+  const okuyucu = akis.body.getReader();
+  const ilkOlay = (async () => {
+    let m = '';
+    while (!m.includes('event: degisti')) m += new TextDecoder().decode((await okuyucu.read()).value);
+    return m;
+  })();
+  tamam(await islem(buro, { islem: 'odeme_al', ogrenciId: 'o5', tutar: 1000 }));
+  tamam(await islem(muh, { islem: 'gider_ekle', subeId: 'sube-cankaya', tutar: 777, kategori: 'Kırtasiye' }));
+  const ogr = (await veri(eg)).ogrenciler.find((o) => o.egitmen_id === 'k-egitmen1' && o.durum === 'aktif');
+  tamam(await islem(eg, { islem: 'ders_saha', ogrenciId: ogr.id, dersTuru: 'direksiyon' }));
+  const m = await ilkOlay;
+  ac.abort();
+  assert.match(m, /Sahadan/);
+  assert.doesNotMatch(m, /ödeme yaptı|Gider/);
+  const bv = await veri(buro);
+  assert.ok(!bv.olaylar.some((o) => o.tur === 'kasa'), 'büro (kasa yetkisi yok) gider olayını görmez');
+  assert.ok(bv.olaylar.some((o) => o.tur === 'odeme'), 'büro tahsilat olayını görür');
+});
