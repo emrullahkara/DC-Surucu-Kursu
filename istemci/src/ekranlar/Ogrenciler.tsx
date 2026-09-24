@@ -191,12 +191,13 @@ function EvrakKarti({ ogrenciId }: { ogrenciId: string }) {
   const turler = v.tanimlar.evrakTurleri || [];
   const yukle = (tur?: string) => pencere('Evrak yükle', [
     { ad: 'tur', etiket: 'Evrak türü', tip: 'select', secenekler: [...turler, 'Diğer'].map((t): [string, string] => [t, t]), deger: tur || turler[0] },
-    { ad: 'dosya', etiket: 'Dosya (fotoğraf veya PDF, en fazla 5 MB)', tip: 'dosya', kabul: 'image/*,application/pdf', zorunlu: true },
+    { ad: 'dosya', etiket: 'Dosya (fotoğraf veya PDF)', tip: 'dosya', kabul: 'image/*,application/pdf', zorunlu: true },
     { tip: 'bilgi', html: 'Telefonda kamerayla doğrudan fotoğraf çekebilirsiniz.' },
   ], async (g) => {
     if (!g.dosya) throw new Error('Dosya seçin.');
-    if (g.dosya.boyut > 5 * 1024 * 1024) throw new Error('Dosya 5 MB’den büyük olamaz.');
-    await islem('evrak_yukle', { ogrenciId, tur: g.tur, ad: g.dosya.ad, veri: g.dosya.veri });
+    const veri = g.dosya.tip.startsWith('image/') ? await fotografKucult(g.dosya.veri) : g.dosya.veri;
+    if (veri.length * 0.75 > 2_500_000) throw new Error('Dosya 2,5 MB’den büyük olamaz. PDF ise daha düşük çözünürlükte tarayın.');
+    await islem('evrak_yukle', { ogrenciId, tur: g.tur, ad: g.dosya.ad, veri });
     await y.b.yenile();
     bildir('Evrak kaydedildi.', 'tamam');
   });
@@ -221,4 +222,20 @@ function EvrakKarti({ ogrenciId }: { ogrenciId: string }) {
       ))}</ul> : <Bos>Yüklenmiş evrak yok.</Bos>}
     </Kart>
   );
+}
+
+// Telefon fotoğrafları çok büyüktür; uzun kenarı 1600 piksele indirilip JPEG olarak gönderilir.
+function fotografKucult(dataUrl: string): Promise<string> {
+  return new Promise((ok) => {
+    const img = new Image();
+    img.onload = () => {
+      const oran = Math.min(1, 1600 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * oran); c.height = Math.round(img.height * oran);
+      c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+      ok(c.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = () => ok(dataUrl);
+    img.src = dataUrl;
+  });
 }

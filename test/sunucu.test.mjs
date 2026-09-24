@@ -368,3 +368,36 @@ test('nakil ve kapatılan şube', async () => {
   tamam(await islem(c, { islem: 'sube_duzenle', id: 'sube-kecioren', aktif: true }));
   delete cerezler['ornek:egitmen3'];
 });
+
+test('evrak: yükleme, eksik listesi, yetkisiz erişim ve öğrencinin gördüğü eksikler', async () => {
+  const buro = await gir('buro', 'personel');
+  let v = await veri(buro);
+  const o = v.ogrenciler.find((x) => x.id === 'o1');
+  assert.equal(o.evrak.eksik.length, 4);
+  const png = 'data:image/png;base64,' + Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').toString('base64');
+  let r = await islem(buro, { islem: 'evrak_yukle', ogrenciId: 'o1', tur: 'Sağlık raporu', ad: 'rapor.png', veri: png });
+  tamam(r);
+  assert.equal((await islem(buro, { islem: 'evrak_yukle', ogrenciId: 'o1', tur: 'X', veri: 'data:text/html;base64,PGh0bWw+' })).durum, 400, 'resim/PDF olmayan dosya reddedilir');
+  v = await veri(buro);
+  assert.ok(v.ogrenciler.find((x) => x.id === 'o1').evrak.tamam.includes('Sağlık raporu'));
+  const dosya = await fetch(`${adres}/api/evrak?id=${r.j.id}`, { headers: { cookie: buro, 'x-firma': 'ornek' } });
+  assert.equal(dosya.status, 200);
+  assert.equal(dosya.headers.get('content-type'), 'image/png');
+  assert.equal((await istek(`/api/evrak?id=${r.j.id}`, { cerez: await gir('egitmen1', 'personel') })).durum, 403, 'eğitmen evrak göremez');
+  assert.equal((await istek(`/api/evrak?id=${r.j.id}`, { cerez: await gir('mudur2', 'yonetici') })).durum, 404, 'başka şubenin müdürü göremez');
+  const g = await istek('/api/ogrenci-giris', { govde: { tc: ORNEK.ogrenciTc, sifre: ORNEK.ogrenciSifre } });
+  const ov = await istek('/api/ogrenci', { cerez: g.cerez });
+  assert.ok(!ov.j.evrak.eksik.includes('Sağlık raporu'));
+  assert.equal(ov.j.evrak.eksik.length, 3);
+});
+
+test('duyuru: şube duyurusu yalnız o şubenin öğrencisine görünür', async () => {
+  const mud = await gir('mudur2', 'yonetici');
+  tamam(await islem(mud, { islem: 'duyuru_ekle', baslik: 'Keçiören sınav günü', metin: 'Yarın sınav var.', subeId: 'sube-cankaya' }));
+  const g = await istek('/api/ogrenci-giris', { govde: { tc: ORNEK.ogrenciTc, sifre: ORNEK.ogrenciSifre } });
+  let ov = await istek('/api/ogrenci', { cerez: g.cerez });
+  assert.ok(!ov.j.duyurular.some((d) => d.baslik === 'Keçiören sınav günü'), 'müdür şubeyi değiştiremez; Çankaya öğrencisi görmez');
+  tamam(await islem(await gir('patron', 'yonetici'), { islem: 'duyuru_ekle', baslik: 'Bayram tatili', metin: 'Kurs kapalıdır.' }));
+  ov = await istek('/api/ogrenci', { cerez: g.cerez });
+  assert.ok(ov.j.duyurular.some((d) => d.baslik === 'Bayram tatili'));
+});

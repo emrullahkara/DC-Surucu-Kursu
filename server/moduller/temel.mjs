@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS gorevlendirmeler(id TEXT PRIMARY KEY, kullanici_id TE
     // Kurum ayarları: yalnız yönetici. Her bölüm ayrı doğrulanır.
     ayar_kaydet(c, k, g) {
       if (k.rol !== 'yonetici') fail('Ayarları yalnız yönetici değiştirir.', 403);
-      const bolum = secim(g.bolum, ['kurum', 'kurallar', 'siniflar', 'ogrenciDersSecimi', 'prim', 'ucretler', 'sozlesme', 'sms', 'pos', 'konum'], 'Ayar bölümü');
+      const bolum = secim(g.bolum, ['kurum', 'kurallar', 'siniflar', 'ogrenciDersSecimi', 'prim', 'ucretler', 'evrakTurleri', 'sozlesme', 'sms', 'pos', 'konum'], 'Ayar bölümü');
       const d = g.deger || {};
       const a = c.ayar();
       if (bolum === 'kurum') {
@@ -173,6 +173,9 @@ CREATE TABLE IF NOT EXISTS gorevlendirmeler(id TEXT PRIMARY KEY, kullanici_id TE
         c.ayarYaz('prim', { direksiyon: tamSayi(d.direksiyon ?? 0, 0, 100_000_00, 'Direksiyon primi'), teorik: tamSayi(d.teorik ?? 0, 0, 100_000_00, 'Teorik primi') });
       } else if (bolum === 'ucretler') {
         c.ayarYaz('ucretler', { ekDers: tamSayi(d.ekDers ?? 0, 0, 100_000_00, 'Ek ders ücreti'), sinavTekrar: tamSayi(d.sinavTekrar ?? 0, 0, 100_000_00, 'Sınav tekrar ücreti') });
+      } else if (bolum === 'evrakTurleri') {
+        if (!Array.isArray(d.liste)) fail('Evrak listesi geçersiz.');
+        c.ayarYaz('evrakTurleri', [...new Set(d.liste.map((x) => metin(x, 60)).filter(Boolean))].slice(0, 20));
       } else if (bolum === 'sozlesme') {
         c.ayarYaz('sozlesmeMetni', metin(d.metin, 20000));
       } else if (bolum === 'konum') {
@@ -187,7 +190,7 @@ CREATE TABLE IF NOT EXISTS gorevlendirmeler(id TEXT PRIMARY KEY, kullanici_id TE
         if (d.acik && saglayici === 'paytr' && (!d.magazaNo || !d.anahtar || !gizli)) fail('PayTR için mağaza no, anahtar ve gizli anahtar gerekir.');
         c.ayarYaz('pos', { acik: !!d.acik, saglayici, magazaNo: metin(d.magazaNo, 40), anahtar: metin(d.anahtar, 200), gizli, deneme: d.deneme !== false });
       }
-      return { olay: [null, 'ayar', `Kurum ayarı değiştirildi: ${{ kurum: 'kurum bilgileri', kurallar: 'sınav ve ders kuralları', siniflar: 'ehliyet sınıfları', ogrenciDersSecimi: 'öğrencinin ders seçmesi', prim: 'eğitmen primi', ucretler: 'ek ücretler', sozlesme: 'sözleşme metni', sms: 'SMS', pos: 'internetten ödeme', konum: 'konum kaydı' }[bolum]}`] };
+      return { olay: [null, 'ayar', `Kurum ayarı değiştirildi: ${{ kurum: 'kurum bilgileri', kurallar: 'sınav ve ders kuralları', siniflar: 'ehliyet sınıfları', ogrenciDersSecimi: 'öğrencinin ders seçmesi', prim: 'eğitmen primi', ucretler: 'ek ücretler', evrakTurleri: 'evrak listesi', sozlesme: 'sözleşme metni', sms: 'SMS', pos: 'internetten ödeme', konum: 'konum kaydı' }[bolum]}`] };
     },
   },
 };

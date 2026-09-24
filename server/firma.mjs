@@ -12,8 +12,10 @@ import ders from './moduller/ders.mjs';
 import sinav from './moduller/sinav.mjs';
 import rapor from './moduller/rapor.mjs';
 import donem from './moduller/donem.mjs';
+import evrak from './moduller/evrak.mjs';
+import duyuru from './moduller/duyuru.mjs';
 
-export const MODULLER = [temel, donem, ogrenci, para, ders, sinav, rapor];
+export const MODULLER = [temel, donem, ogrenci, evrak, para, ders, sinav, rapor, duyuru];
 
 // ---------------------------------------------------------------------------
 // ROLLER VE YETKİLER
@@ -91,6 +93,8 @@ export const VARSAYILAN_AYAR = {
   ucretler: { ekDers: 0, sinavTekrar: 0 },
   kurum: { adres: '', telefon: '', vergiDairesi: '', vergiNo: '', logo: '' },
   sozlesmeMetni: '',
+  // Kayıtta istenen evraklar (kurum değiştirebilir).
+  evrakTurleri: ['Kimlik fotokopisi', 'Sağlık raporu', 'Öğrenim belgesi', 'Biyometrik fotoğraf'],
   sms: { acik: false, saglayici: '', baslik: '' },
   pos: { acik: false, saglayici: '', magazaNo: '', anahtar: '', gizli: '', deneme: true },
 };
