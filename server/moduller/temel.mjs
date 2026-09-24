@@ -231,6 +231,7 @@ CREATE TABLE IF NOT EXISTS izinler(id TEXT PRIMARY KEY, kullanici_id TEXT NOT NU
       } else if (bolum === 'pos') {
         const saglayici = d.saglayici ? secim(d.saglayici, ['deneme', 'paytr'], 'Sanal POS sağlayıcısı') : '';
         if (d.acik && !saglayici) fail('Sanal POS sağlayıcısı seçin.');
+        if (saglayici === 'deneme' && !c.posDeneme) fail('Deneme sağlayıcısı yalnız deneme kurumunda kullanılabilir.');
         // Gizli anahtar ekrana geri gönderilmez; boş gelirse eskisi korunur.
         const gizli = d.gizli && d.gizli !== '••••••' ? metin(d.gizli, 200) : a.pos.gizli;
         if (d.acik && saglayici === 'paytr' && (!d.magazaNo || !d.anahtar || !gizli)) fail('PayTR için mağaza no, anahtar ve gizli anahtar gerekir.');

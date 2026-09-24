@@ -455,3 +455,37 @@ test('kayıt defteri: müdür kendi şubesini görür, eğitmen göremez, arama 
   assert.ok(r.j.olaylar.every((o) => o.sube_id === 'sube-cankaya'));
   assert.equal((await istek('/api/kayit-defteri', { cerez: await gir('egitmen1', 'personel') })).durum, 403);
 });
+
+test('internetten ödeme: deneme sağlayıcısı, imzasız bildirim reddedilir, ödeme bir kez yazılır', async () => {
+  const yon = await gir('patron', 'yonetici');
+  tamam(await islem(yon, { islem: 'ayar_kaydet', bolum: 'pos', deger: { acik: true, saglayici: 'deneme' } }));
+  const g = await istek('/api/ogrenci-giris', { govde: { tc: ORNEK.ogrenciTc, sifre: ORNEK.ogrenciSifre } });
+  const ov = await istek('/api/ogrenci', { cerez: g.cerez });
+  assert.equal(ov.j.pos.acik, true);
+  const once = ov.j.hesap.odenen;
+  assert.equal((await istek('/api/pos-baslat', { cerez: g.cerez, govde: { tutar: ov.j.hesap.kalan + 100 } })).durum, 400, 'borçtan fazla ödenemez');
+  const b = await istek('/api/pos-baslat', { cerez: g.cerez, govde: { tutar: 50000 } });
+  tamam(b);
+  const sayfa = await (await fetch(adres + b.j.adres)).text();
+  const imza = /name="imza" value="([^"]+)"/.exec(sayfa)[1].replace(/&#39;/g, "'");
+  const no = new URL(adres + b.j.adres).searchParams.get('no');
+  const gonder = (govde) => fetch(`${adres}/api/pos-bildirim/ornek/deneme`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(govde) });
+  assert.equal((await gonder({ no, durum: 'success', imza: 'sahte' })).status, 403, 'imzasız bildirim reddedilir');
+  assert.equal((await gonder({ no, durum: 'success', imza })).status, 200);
+  assert.equal((await gonder({ no, durum: 'success', imza })).status, 200);
+  const sonra = (await istek('/api/ogrenci', { cerez: g.cerez })).j.hesap.odenen;
+  assert.equal(sonra - once, 50000, 'aynı bildirim iki kez gelse de ödeme bir kez yazılır');
+  const od = (await veri(yon)).odemeler.find((x) => x.pos_islem === no);
+  assert.equal(od.yontem, 'internet');
+  assert.equal((await islem(yon, { islem: 'odeme_iptal', id: od.id, neden: 'x' })).durum, 400, 'internet ödemesi elle iptal edilmez');
+  tamam(await islem(yon, { islem: 'ayar_kaydet', bolum: 'pos', deger: { acik: false, saglayici: '' } }));
+});
+
+test('PayTR: istek ve bildirim imzası belgelerdeki sırayla hesaplanır', async () => {
+  const { paytrIstekImzasi, paytrBildirimImzasi } = await import('../server/moduller/pos.mjs');
+  const { createHmac } = await import('node:crypto');
+  const p = { magazaNo: '123', anahtar: 'KEY', gizli: 'SALT' };
+  const a = { ip: '1.2.3.4', oid: 'DC1', eposta: 'a@b.c', tutar: '5000', sepet: 'W10=', taksitsiz: '1', enFazlaTaksit: '0', test: '1' };
+  assert.equal(paytrIstekImzasi(p, a), createHmac('sha256', 'KEY').update('1231.2.3.4DC1a@b.c5000W10=10TL1SALT').digest('base64'));
+  assert.equal(paytrBildirimImzasi(p, 'DC1', 'success', '5000'), createHmac('sha256', 'KEY').update('DC1SALTsuccess5000').digest('base64'));
+});

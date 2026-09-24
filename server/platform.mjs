@@ -43,7 +43,7 @@ export function platformAc({
     let f = firmalar.get(kod);
     if (!f) {
       const db = nodeVeritabani(bellekte ? ':memory:' : resolve(veriDizini, 'firmalar', `${kod}.sqlite`));
-      f = firmaAc({ db, saatKaynagi, limit: () => ({ maxSube: q1('SELECT max_sube FROM firmalar WHERE kod=?', kod)?.max_sube ?? 1 }) });
+      f = firmaAc({ db, saatKaynagi, posDeneme: demo || process.env.POS_DENEME === '1', limit: () => ({ maxSube: q1('SELECT max_sube FROM firmalar WHERE kod=?', kod)?.max_sube ?? 1 }) });
       firmalar.set(kod, f);
     }
     return f;
@@ -215,7 +215,7 @@ export function platformAc({
       const f = firmaBilgi(kod);
       if (yol === '/api/firma' && req.method === 'GET') {
         if (!f) return json(res, 404, { hata: 'Bu kodla bir kurum bulunamadı.' });
-        const d = firmaMotoru(f.kod).istek({ yontem: 'GET', yol: '/api/durum' });
+        const d = await firmaMotoru(f.kod).istek({ yontem: 'GET', yol: '/api/durum' });
         return json(res, 200, { kod: f.kod, ad: d.veri.kurum || f.ad, logo: d.veri.logo || '', lisans: lisansDurumu(f), demo: f.kod === 'ornek' && demo });
       }
       if (!f) fail('Kurum kodu bulunamadı. Giriş ekranından kurum kodunuzu yazın.', 404);
@@ -234,7 +234,9 @@ export function platformAc({
         return;
       }
       const govde = req.method === 'POST' ? await govdeOku(req) : {};
-      const r = motor.istek({ yontem: req.method, yol, sorgu: url.searchParams, oturum: cerezler[cerezAd], govde, firmaKodu: f.kod });
+      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim().replace(/^::ffff:/, '');
+      const koken = process.env.GENEL_ADRES || `${guvenliCerez ? 'https' : 'http'}://${req.headers.host}`;
+      const r = await motor.istek({ yontem: req.method, yol: posBildirim ? '/api/pos-bildirim' : yol, sorgu: url.searchParams, oturum: cerezler[cerezAd], govde, firmaKodu: f.kod, ip, koken, saglayici: posBildirim ? yol.split('/')[4] : '' });
       const basliklar = {};
       if (r.oturum !== undefined) basliklar['Set-Cookie'] = cerezYaz({ ad: cerezAd, deger: r.oturum?.deger || '', yas: r.oturum?.yas || 0 });
       if (r.ham) { res.writeHead(r.durum, { ...GUVENLIK, 'Cache-Control': 'no-store', ...r.ham.basliklar }); return res.end(r.ham.govde); }

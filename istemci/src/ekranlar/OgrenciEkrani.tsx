@@ -67,7 +67,7 @@ export function OgrenciEkrani({ cikis, oturumBitti }: { cikis: () => void; oturu
               <div><span>Toplam</span>{tl(h.ucret)}</div><div><span>Ödenen</span>{tl(h.odenen)}</div><div><span>Kalan</span><b>{tl(h.kalan)}</b></div>
               {h.geciken > 0 && <div><span>Geciken</span><span className="rozet kirmizi">{tl(h.geciken)}</span></div>}
             </div>
-            {v.pos?.acik && h.kalan > 0 && <InternettenOde oneri={h.geciken || (h.siradaki ? h.siradaki.tutar - h.siradaki.odenen : h.kalan)} kalan={h.kalan} />}
+            {v.pos?.acik && h.kalan > 0 && <InternettenOde oneri={h.geciken || (h.siradaki ? h.siradaki.tutar - h.siradaki.odenen : h.kalan)} kalan={h.kalan} yenile={yenile} />}
             {h.taksitler.length > 0 && <><h3>Taksitlerim</h3><table><tbody>{h.taksitler.map((t, i) => (
               <tr key={i}><td>{tarih(t.vade)}</td><td className="kucuk soluk">{t.ek}</td><td className="sayi-h">{tl(t.tutar)}</td><td><Rozet tablo={DURUM_TAKSIT} d={t.durum} /></td></tr>
             ))}</tbody></table></>}
@@ -142,13 +142,13 @@ function DersSec({ v, yenile }: { v: OgrenciVeri; yenile: () => Promise<void> })
 }
 
 // Kurumun kendi sanal POS'u ile ödeme (karar 15). Ödeme sayfası ödeme firmasının güvenli sayfasıdır.
-function InternettenOde({ oneri, kalan }: { oneri: number; kalan: number }) {
+function InternettenOde({ oneri, kalan, yenile }: { oneri: number; kalan: number; yenile: () => void }) {
   const [tutar, setTutar] = useState((oneri / 100).toFixed(2).replace('.', ','));
   const [iframe, setIframe] = useState<string | null>(null);
   if (iframe) return (
     <div className="odeme-cercevesi">
       <iframe src={iframe} title="Güvenli ödeme" />
-      <p className="soluk kucuk">Ödeme tamamlanınca bakiyeniz birkaç saniye içinde güncellenir. <button className="baglanti" onClick={() => setIframe(null)}>Kapat</button></p>
+      <p className="soluk kucuk">Ödeme tamamlanınca bakiyeniz birkaç saniye içinde güncellenir. <button className="baglanti" onClick={() => { setIframe(null); yenile(); }}>Kapat</button></p>
     </div>
   );
   return (
@@ -157,7 +157,7 @@ function InternettenOde({ oneri, kalan }: { oneri: number; kalan: number }) {
       <IsDugmesi className="dugme ana" is={async () => {
         const k = Math.round(Number(tutar.replace(/\./g, '').replace(',', '.')) * 100);
         if (!k || k <= 0 || k > kalan) throw new Error(`Tutar 0 ile ${tl(kalan)} arasında olmalı.`);
-        const r = await api<{ adres: string }>('/api/ogrenci-islem', { islem: 'pos_baslat', tutar: k });
+        const r = await api<{ adres: string }>('/api/pos-baslat', { tutar: k });
         setIframe(r.adres);
       }}>Kartla öde</IsDugmesi>
     </div>

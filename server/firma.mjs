@@ -15,8 +15,9 @@ import donem from './moduller/donem.mjs';
 import evrak from './moduller/evrak.mjs';
 import duyuru from './moduller/duyuru.mjs';
 import guvenlik from './moduller/guvenlik.mjs';
+import pos from './moduller/pos.mjs';
 
-export const MODULLER = [temel, donem, ogrenci, evrak, para, ders, sinav, rapor, duyuru, guvenlik];
+export const MODULLER = [temel, donem, ogrenci, evrak, para, ders, sinav, rapor, duyuru, guvenlik, pos];
 
 // ---------------------------------------------------------------------------
 // ROLLER VE YETKİLER
@@ -130,7 +131,7 @@ export function semaKur(db) {
 // ---------------------------------------------------------------------------
 // FİRMA MOTORU
 // ---------------------------------------------------------------------------
-export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomBytes, limit = () => ({ maxSube: 1000 }) } = {}) {
+export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomBytes, limit = () => ({ maxSube: 1000 }), posDeneme = false, disIstek = globalThis.fetch } = {}) {
   semaKur(db);
   const { q, q1, run, islemde } = db;
   const bugunStr = () => bugun(saatKaynagi());
@@ -239,7 +240,9 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
   const ctx = {
     db, q, q1, run, islemde, bugunStr, saatKaynagi, simdi, ayar, ayarYaz, kapsam, subeIzinli, hak, hakGerek, egitmenKisitli,
     ogrenciGorebilir, ogrenciAl, egitmenAl, aracAl, gorevli, hesap, odenenToplam, dersSayaci, olayYaz, etkinHaklar,
-    HAKLAR, ROLLER, VERILEBILIR, sifreKontrol, sifreOzet, sifreDogru, tcMaskele, limit,
+    HAKLAR, ROLLER, VERILEBILIR, sifreKontrol, sifreOzet, sifreDogru, tcMaskele, limit, posDeneme, disIstek,
+    // İşlem dışında (ör. ödeme bildirimi) kayıt yazıp canlı akışa duyurmak için.
+    olayYayinla(kim, subeId, tur, yazi) { yayinla(olayYaz(kim, subeId, tur, yazi)); },
   };
 
   // -------------------------------------------------------------------------
@@ -396,9 +399,15 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
   // İSTEK KARŞILAMA (sunucudan bağımsız). istek: {yontem, yol, sorgu, oturum, govde}
   // Dönüş: {durum, veri, oturum?: {deger, yas} | null (çıkış)}
   // -------------------------------------------------------------------------
-  function istek({ yontem, yol, sorgu = new URLSearchParams(), oturum, govde = {}, firmaKodu = '' }) {
-    ctx.firmaKodu = firmaKodu;
+  // Bazı yollar (ör. sanal POS) dış servise gider; bu yüzden karşılama beklemelidir (async).
+  async function istek({ yontem, yol, sorgu = new URLSearchParams(), oturum, govde = {}, firmaKodu = '', ip = '', koken = '', saglayici = '' }) {
+    const ist = { yontem, yol, sorgu, govde, firmaKodu, ip, koken, saglayici };
     try {
+      // Oturum gerektirmeyen yollar (ör. ödeme firmasının bildirimi; kendi imzasıyla doğrulanır).
+      for (const m of MODULLER) {
+        const r = await m.acikYol?.(ctx, ist);
+        if (r) return r;
+      }
       if (yol === '/api/durum' && yontem === 'GET') {
         return { durum: 200, veri: { kurulu: !!q1('SELECT 1 FROM kullanicilar LIMIT 1'), kurum: q1('SELECT ad FROM kurum')?.ad || '', logo: ayar().kurum.logo } };
       }
@@ -427,7 +436,7 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
           return { durum: 200, veri: { tamam: true, ...calistir(OGRENCI_ISLEMLERI, kisi, govde, 'o:' + ot.o.id) } };
         }
         for (const m of MODULLER) {
-          const r = m.ogrenciYol?.(ctx, ot.o, { yontem, yol, sorgu });
+          const r = await m.ogrenciYol?.(ctx, ot.o, ist);
           if (r) return r;
         }
         fail('Bu sayfa için yetkiniz yok.', 403);
@@ -436,7 +445,7 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
       if (yol === '/api/veri' && yontem === 'GET') return { durum: 200, veri: veri(k) };
       if (yol === '/api/islem' && yontem === 'POST') return { durum: 200, veri: { tamam: true, ...calistir(ISLEMLER, k, govde, k.id) } };
       for (const m of MODULLER) {
-        const r = m.yol?.(ctx, k, { yontem, yol, sorgu });
+        const r = await m.yol?.(ctx, k, ist);
         if (r) return r;
       }
       fail('Bulunamadı.', 404);
