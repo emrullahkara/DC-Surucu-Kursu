@@ -1,0 +1,13 @@
+{
+  "name": "dc-surucu-kursu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Çok şubeli sürücü kursu takip uygulaması",
+  "type": "module",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.mjs",
+    "demo": "ENABLE_DEMO=1 DB_PATH=data/demo.sqlite node --disable-warning=ExperimentalWarning server/index.mjs",
+    "test": "node --disable-warning=ExperimentalWarning --test server/app.test.mjs"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "DC Sürücü Kursu",
+  "short_name": "DC Kurs",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6fa",
+  "theme_color": "#1f4e8c",
+  "lang": "tr",
+  "icons": [{ "src": "/simge.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
