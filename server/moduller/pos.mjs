@@ -29,12 +29,18 @@ function denemeAnahtari(c) {
   return a;
 }
 
+// Sanal POS ayarı; mağaza parolası ve gizli anahtar şifreli saklanır, yalnız burada açılır.
+function posAyar(c) {
+  const p = c.ayar().pos;
+  return { ...p, anahtar: c.sifre.metinCoz(p.anahtar), gizli: c.sifre.metinCoz(p.gizli) };
+}
+
 function odemeYaz(c, islem, aciklama) {
   const o = c.q1('SELECT * FROM ogrenciler WHERE id=?', islem.ogrenci_id);
   c.islemde(() => {
     c.run("UPDATE pos_islemleri SET durum='basarili', sonuc_zamani=? WHERE id=?", simdi(), islem.id);
     c.run("INSERT INTO odemeler(id,ogrenci_id,sube_id,tutar,tarih,yontem,aciklama,kaydeden,olusturma,tur,makbuz_no,pos_islem) VALUES(?,?,?,?,?,'internet',?,?,?,'odeme',?,?)",
-      'pos-' + islem.id, o.id, o.sube_id, islem.tutar, c.bugunStr(), aciklama, 'İnternetten ödeme', simdi(), makbuzNo(c), islem.id);
+      'pos-' + islem.id, o.id, o.sube_id, islem.tutar, c.bugunStr(), aciklama, 'İnternetten ödeme', simdi(), makbuzNo(c, o.sube_id), islem.id);
   });
   const fazla = c.hesap(o).kalan < 0;
   c.olayYayinla({ ad: `${o.ad} ${o.soyad} (öğrenci)` }, o.sube_id, 'odeme',
@@ -58,7 +64,7 @@ CREATE TABLE IF NOT EXISTS sistem_anahtarlari(ad TEXT PRIMARY KEY, deger TEXT NO
     if (yol !== '/api/pos-baslat' || yontem !== 'POST') return null;
     const kayit = c.q1('SELECT * FROM ogrenciler WHERE id=?', o.id);
     if (kayit.portal_sifre_gecici) fail('Önce kendi şifrenizi belirleyin.', 403);
-    const p = c.ayar().pos;
+    const p = posAyar(c);
     if (!p.acik || !p.saglayici) fail('Kursunuz internetten ödeme almıyor.');
     if (p.saglayici === 'deneme' && !c.posDeneme) fail('Deneme ödemesi bu kurumda kapalı.');
     const tutar = kurus(govde.tutar, 'Tutar', false);
@@ -111,7 +117,7 @@ ${x.durum === 'bekliyor' ? dugme('success', 'Ödeme başarılı') + '<br>' + dug
       return { durum: 200, ham: { basliklar: { 'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'SAMEORIGIN', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'self'" }, govde: html } };
     }
     if (yol !== '/api/pos-bildirim' || yontem !== 'POST') return null;
-    const p = c.ayar().pos;
+    const p = posAyar(c);
     const tamam = (metin = 'OK') => ({ durum: 200, ham: { basliklar: { 'Content-Type': 'text/plain; charset=utf-8' }, govde: metin } });
 
     if (saglayici === 'deneme') {

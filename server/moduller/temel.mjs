@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { fail, metin, gun, tamSayi, secim } from '../domain.mjs';
 import { sutunEkle } from '../db-ortak.mjs';
+import { smsAyarDogrula, hatirlatmaAyarDogrula } from './hatirlatma.mjs';
 
 const simdi = () => new Date().toISOString();
 const saatDogru = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
@@ -20,15 +21,21 @@ CREATE TABLE IF NOT EXISTS izinler(id TEXT PRIMARY KEY, kullanici_id TEXT NOT NU
   tur TEXT NOT NULL, aciklama TEXT NOT NULL DEFAULT '', kaydeden TEXT NOT NULL, olusturma TEXT NOT NULL);
 `);
     // Araç takibi (karar 22): sonradan eklenen sütunlar. Eski kayıtlar olduğu gibi açılır.
+    // Şubenin kısa kodu (makbuz serisi için, ör. CNK).
+    sutunEkle(db, 'subeler', 'kod', "TEXT NOT NULL DEFAULT ''");
     for (const [s, t] of [['km', 'INTEGER'], ['muayene', "TEXT NOT NULL DEFAULT ''"], ['sigorta', "TEXT NOT NULL DEFAULT ''"], ['kasko', "TEXT NOT NULL DEFAULT ''"],
-      ['bakim', "TEXT NOT NULL DEFAULT ''"], ['bakim_km', 'INTEGER'], ['notlar', "TEXT NOT NULL DEFAULT ''"]]) sutunEkle(db, 'araclar', s, t);
+      ['bakim', "TEXT NOT NULL DEFAULT ''"], ['bakim_km', 'INTEGER'], ['notlar', "TEXT NOT NULL DEFAULT ''"],
+      // Arıza / kullanım dışı: açıklama, başlangıç ve (boşsa belirsiz) bitiş.
+      ['ariza', "TEXT NOT NULL DEFAULT ''"], ['ariza_bas', "TEXT NOT NULL DEFAULT ''"], ['ariza_bit', "TEXT NOT NULL DEFAULT ''"]]) sutunEkle(db, 'araclar', s, t);
+    db.exec(`CREATE TABLE IF NOT EXISTS arac_km(id TEXT PRIMARY KEY, arac_id TEXT NOT NULL REFERENCES araclar(id), km INTEGER NOT NULL, tarih TEXT NOT NULL,
+  kaydeden TEXT NOT NULL, olusturma TEXT NOT NULL);`);
   },
 
   veri(c, k, v) {
     const kps = c.kapsam(k);
     const sp = kps === null ? [] : [kps];
     const subeSart = kps === null ? '1=1' : 'sube_id=?';
-    v.subeler = c.q(`SELECT id,ad,adres,telefon,merkez,aktif FROM subeler WHERE ${kps === null ? '1=1' : 'id=?'} ORDER BY merkez DESC, ad`, ...sp);
+    v.subeler = c.q(`SELECT id,ad,adres,telefon,merkez,aktif,kod FROM subeler WHERE ${kps === null ? '1=1' : 'id=?'} ORDER BY merkez DESC, ad`, ...sp);
     // Görevlendirme ile başka şubede ders veren eğitmen, o şubenin listesinde de görünür.
     const gorevliler = kps === null ? [] : c.q('SELECT DISTINCT kullanici_id FROM gorevlendirmeler WHERE sube_id=? AND bit>=?', kps, c.bugunStr()).map((x) => x.kullanici_id);
     const gorevliSart = gorevliler.length ? ` OR id IN (${gorevliler.map(() => '?').join(',')})` : '';
@@ -60,7 +67,7 @@ CREATE TABLE IF NOT EXISTS izinler(id TEXT PRIMARY KEY, kullanici_id TEXT NOT NU
       const sinir = c.limit().maxSube;
       if (c.q1('SELECT COUNT(*) n FROM subeler WHERE aktif=1').n >= sinir) fail(`Lisansınız en fazla ${sinir} şube içindir. Yeni şube için DC ile görüşün.`, 402);
       const id = randomUUID();
-      c.run('INSERT INTO subeler(id,ad,adres,telefon,merkez,aktif,olusturma) VALUES(?,?,?,?,0,1,?)', id, ad, metin(g.adres, 300), metin(g.telefon, 30), simdi());
+      c.run('INSERT INTO subeler(id,ad,adres,telefon,merkez,aktif,olusturma,kod) VALUES(?,?,?,?,0,1,?,?)', id, ad, metin(g.adres, 300), metin(g.telefon, 30), simdi(), subeKodu(c, g.kod, null));
       return { sonuc: { id }, olay: [id, 'sube', `Yeni şube açıldı: ${ad}`] };
     },
     sube_duzenle(c, k, g) {
@@ -70,13 +77,15 @@ CREATE TABLE IF NOT EXISTS izinler(id TEXT PRIMARY KEY, kullanici_id TEXT NOT NU
       if (s.merkez && !aktif) fail('Merkez şube kapatılamaz.');
       if (!s.aktif && aktif && c.q1('SELECT COUNT(*) n FROM subeler WHERE aktif=1').n >= c.limit().maxSube) fail(`Lisansınız en fazla ${c.limit().maxSube} açık şube içindir.`, 402);
       const ad = metin(g.ad ?? s.ad, 80, true, 'Şube adı');
-      c.run('UPDATE subeler SET ad=?,adres=?,telefon=?,aktif=? WHERE id=?', ad, metin(g.adres ?? s.adres, 300), metin(g.telefon ?? s.telefon, 30), aktif, s.id);
+      c.run('UPDATE subeler SET ad=?,adres=?,telefon=?,aktif=?,kod=? WHERE id=?', ad, metin(g.adres ?? s.adres, 300), metin(g.telefon ?? s.telefon, 30), aktif,
+        g.kod !== undefined ? subeKodu(c, g.kod, s.id) : s.kod, s.id);
       if (!aktif) c.run("DELETE FROM oturumlar WHERE tur='personel' AND kimlik IN (SELECT id FROM kullanicilar WHERE sube_id=?)", s.id);
       return { olay: [s.id, 'sube', `Şube bilgisi güncellendi: ${ad}${aktif ? '' : ' (kapatıldı)'}`] };
     },
 
     personel_ekle(c, k, g) {
       const subeId = personelYetkiDenetle(c, k, g.rol, g.subeId);
+      kullaniciSiniri(c);
       const kad = metin(g.kullaniciAdi, 40, true, 'Kullanıcı adı').toLocaleLowerCase('tr-TR');
       if (!/^[a-z0-9._-]{3,40}$/.test(kad)) fail('Kullanıcı adı en az 3 karakter olmalı; harf, rakam, nokta ve tire kullanılabilir.');
       if (c.q1('SELECT 1 FROM kullanicilar WHERE kullanici_adi=?', kad)) fail('Bu kullanıcı adı alınmış.');
@@ -99,6 +108,7 @@ CREATE TABLE IF NOT EXISTS izinler(id TEXT PRIMARY KEY, kullanici_id TEXT NOT NU
       } else personelYetkiDenetle(c, k, rol, subeId);
       const yeniSube = rol === 'yonetici' ? null : subeId;
       const aktif = g.aktif === undefined ? p.aktif : g.aktif ? 1 : 0;
+      if (aktif && !p.aktif) kullaniciSiniri(c);
       if (p.rol === 'yonetici' && (!aktif || rol !== 'yonetici') && c.q1("SELECT COUNT(*) n FROM kullanicilar WHERE rol='yonetici' AND aktif=1").n <= 1) fail('Son yönetici kapatılamaz.');
       const ad = metin(g.ad ?? p.ad, 80, true, 'Ad soyad');
       c.run('UPDATE kullanicilar SET ad=?,rol=?,sube_id=?,yetkiler=?,telefon=?,aktif=? WHERE id=?',
@@ -154,6 +164,38 @@ CREATE TABLE IF NOT EXISTS izinler(id TEXT PRIMARY KEY, kullanici_id TEXT NOT NU
       return { olay: [subeId, 'arac', `Araç güncellendi: ${a.plaka}`] };
     },
 
+    // Kilometre: araç yetkisi olan ya da o aracı derste kullanan eğitmen girer (sahadan).
+    arac_km(c, k, g) {
+      const a = c.q1('SELECT * FROM araclar WHERE id=?', metin(g.id, 60, true, 'Araç'));
+      if (!a) fail('Araç bulunamadı.', 404);
+      if (c.hak(k, 'personel')) c.subeIzinli(k, a.sube_id);
+      else if (!(a.sube_id === k.sube_id || c.q1('SELECT 1 FROM dersler WHERE arac_id=? AND egitmen_id=? AND tarih>=? LIMIT 1', a.id, k.id, gunOnce(c.bugunStr(), 30))))
+        fail('Bu aracın kilometresini giremezsiniz.', 403);
+      const km = tamSayi(g.km, 0, 5_000_000, 'Kilometre');
+      if (a.km && km < a.km && !c.hak(k, 'personel')) fail(`Girilen kilometre kayıtlı olandan (${a.km.toLocaleString('tr-TR')}) küçük olamaz.`);
+      c.run('UPDATE araclar SET km=? WHERE id=?', km, a.id);
+      c.run('INSERT INTO arac_km(id,arac_id,km,tarih,kaydeden,olusturma) VALUES(?,?,?,?,?,?)', randomUUID(), a.id, km, c.bugunStr(), k.ad, simdi());
+      const bakimUyari = a.bakim_km && a.bakim_km - km <= 1000 ? ` · bakıma ${Math.max(0, a.bakim_km - km).toLocaleString('tr-TR')} km kaldı` : '';
+      return { olay: [a.sube_id, 'arac', `${a.plaka} kilometresi: ${km.toLocaleString('tr-TR')}${bakimUyari}`, { egitmen: k.id }] };
+    },
+    // Arıza / kullanım dışı: o günlerdeki planlı dersler listelenir, "toplu aktarım" ile başka araca geçirilir.
+    arac_ariza(c, k, g) {
+      const a = c.q1('SELECT * FROM araclar WHERE id=?', metin(g.id, 60, true, 'Araç'));
+      if (!a) fail('Araç bulunamadı.', 404);
+      if (c.hak(k, 'personel') || c.hak(k, 'ders')) c.subeIzinli(k, a.sube_id);
+      else if (a.sube_id !== k.sube_id) fail('Bu araç için yetkiniz yok.', 403);
+      if (g.bitir) {
+        c.run("UPDATE araclar SET ariza='', ariza_bas='', ariza_bit='' WHERE id=?", a.id);
+        return { olay: [a.sube_id, 'arac', `${a.plaka} yeniden kullanımda`, { egitmen: k.id }] };
+      }
+      const aciklama = metin(g.aciklama, 200, true, 'Arıza açıklaması');
+      const bas = gun(g.bas || c.bugunStr(), 'Başlangıç'), bit = gun(g.bit, 'Bitiş', false);
+      if (bit && bit < bas) fail('Bitiş başlangıçtan önce olamaz.');
+      c.run('UPDATE araclar SET ariza=?, ariza_bas=?, ariza_bit=? WHERE id=?', aciklama, bas, bit, a.id);
+      const etkilenen = c.q(`SELECT id FROM dersler WHERE arac_id=? AND durum='planli' AND tarih>=?${bit ? ' AND tarih<=?' : ''}`, a.id, bas, ...(bit ? [bit] : [])).length;
+      return { sonuc: { etkilenen }, olay: [a.sube_id, 'arac', `${a.plaka} arızalı / kullanım dışı: ${aciklama}${etkilenen ? ` · ${etkilenen} planlı ders başka araca aktarılmalı` : ''}`, { egitmen: k.id }] };
+    },
+
     personel_belge_ekle(c, k, g) {
       const p = personelAl(c, k, g.kullaniciId);
       c.run('INSERT INTO personel_belgeleri(id,kullanici_id,tur,no,bitis,notlar,kaydeden,olusturma) VALUES(?,?,?,?,?,?,?,?)',
@@ -188,7 +230,7 @@ CREATE TABLE IF NOT EXISTS izinler(id TEXT PRIMARY KEY, kullanici_id TEXT NOT NU
     // Kurum ayarları: yalnız yönetici. Her bölüm ayrı doğrulanır.
     ayar_kaydet(c, k, g) {
       if (k.rol !== 'yonetici') fail('Ayarları yalnız yönetici değiştirir.', 403);
-      const bolum = secim(g.bolum, ['kurum', 'kurallar', 'siniflar', 'ogrenciDersSecimi', 'prim', 'ucretler', 'evrakTurleri', 'sozlesme', 'sms', 'pos', 'konum'], 'Ayar bölümü');
+      const bolum = secim(g.bolum, ['kurum', 'kurallar', 'siniflar', 'ogrenciDersSecimi', 'prim', 'ucretler', 'evrakTurleri', 'sozlesme', 'sms', 'pos', 'konum', 'makbuz', 'kvkk', 'fatura', 'onKayit', 'hatirlatma', 'karne', 'denemeTest'], 'Ayar bölümü');
       const d = g.deger || {};
       const a = c.ayar();
       if (bolum === 'kurum') {
@@ -200,6 +242,10 @@ CREATE TABLE IF NOT EXISTS izinler(id TEXT PRIMARY KEY, kullanici_id TEXT NOT NU
         c.ayarYaz('sinavHakki', tamSayi(d.sinavHakki ?? a.sinavHakki, 1, 20, 'Sınav hakkı'));
         c.ayarYaz('eSinavGecme', tamSayi(d.eSinavGecme ?? a.eSinavGecme, 1, 100, 'E-sınav geçme puanı'));
         c.ayarYaz('dersSuresi', tamSayi(d.dersSuresi ?? a.dersSuresi, 10, 240, 'Ders süresi'));
+        if (d.girmediHakYakar !== undefined) c.ayarYaz('girmediHakYakar', !!d.girmediHakYakar);
+        c.ayarYaz('egitmenGunlukDers', tamSayi(d.egitmenGunlukDers ?? a.egitmenGunlukDers, 0, 24, 'Eğitmen günlük ders sınırı'));
+        c.ayarYaz('ogrenciGunlukDers', tamSayi(d.ogrenciGunlukDers ?? a.ogrenciGunlukDers, 1, 6, 'Öğrenci günlük ders sınırı'));
+        c.ayarYaz('eSinavGecerlilikGun', tamSayi(d.eSinavGecerlilikGun ?? a.eSinavGecerlilikGun, 0, 3650, 'E-sınav geçerlilik süresi'));
       } else if (bolum === 'siniflar') {
         if (!d || typeof d !== 'object') fail('Sınıf listesi geçersiz.');
         const yeni = {};
@@ -226,24 +272,62 @@ CREATE TABLE IF NOT EXISTS izinler(id TEXT PRIMARY KEY, kullanici_id TEXT NOT NU
         c.ayarYaz('evrakTurleri', [...new Set(d.liste.map((x) => metin(x, 60)).filter(Boolean))].slice(0, 20));
       } else if (bolum === 'sozlesme') {
         c.ayarYaz('sozlesmeMetni', metin(d.metin, 20000));
+      } else if (bolum === 'kvkk') {
+        const yeniMetin = metin(d.metin ?? a.kvkk.metin, 20000);
+        c.ayarYaz('kvkk', { metin: yeniMetin, surum: (a.kvkk.surum || 1) + (yeniMetin !== a.kvkk.metin ? 1 : 0), saklamaYil: tamSayi(d.saklamaYil ?? a.kvkk.saklamaYil, 0, 30, 'Saklama süresi') });
+      } else if (bolum === 'fatura') {
+        c.ayarYaz('fatura', { kdvOrani: tamSayi(d.kdvOrani ?? a.fatura.kdvOrani, 0, 100, 'KDV oranı') });
+      } else if (bolum === 'onKayit') {
+        c.ayarYaz('onKayit', { acik: !!d.acik, mesaj: metin(d.mesaj, 500) });
+        if (Array.isArray(d.kaynaklar)) c.ayarYaz('kaynaklar', [...new Set(d.kaynaklar.map((x) => metin(x, 40)).filter(Boolean))].slice(0, 30));
+      } else if (bolum === 'karne') {
+        if (!Array.isArray(d.konular)) fail('Konu listesi geçersiz.');
+        const l = [...new Set(d.konular.map((x) => metin(x, 60)).filter(Boolean))].slice(0, 40);
+        if (!l.length) fail('En az bir konu olmalı.');
+        c.ayarYaz('karneKonulari', l);
+      } else if (bolum === 'denemeTest') {
+        c.ayarYaz('denemeTest', { acik: !!d.acik, soruSayisi: tamSayi(d.soruSayisi ?? a.denemeTest.soruSayisi, 5, 100, 'Soru sayısı'), sureDk: tamSayi(d.sureDk ?? a.denemeTest.sureDk, 5, 180, 'Süre') });
+      } else if (bolum === 'makbuz') {
+        const seri = secim(d.seri, ['kurum', 'sube'], 'Makbuz serisi');
+        if (seri === 'sube') {
+          const eksik = c.q("SELECT ad FROM subeler WHERE aktif=1 AND kod=''").map((x) => x.ad);
+          if (eksik.length) fail(`Şube serisi için her şubeye kısa kod verin (Şubeler > Düzenle). Kodu olmayan: ${eksik.join(', ')}`);
+        }
+        c.ayarYaz('makbuzSerisi', seri);
       } else if (bolum === 'konum') {
         c.ayarYaz('konumKaydi', !!d.acik);
       } else if (bolum === 'sms') {
-        c.ayarYaz('sms', { acik: !!d.acik, saglayici: metin(d.saglayici, 40), baslik: metin(d.baslik, 11) });
+        c.ayarYaz('sms', smsAyarDogrula(c, d, a.sms));
+      } else if (bolum === 'hatirlatma') {
+        c.ayarYaz('hatirlatma', hatirlatmaAyarDogrula(d, a.hatirlatma));
       } else if (bolum === 'pos') {
         const saglayici = d.saglayici ? secim(d.saglayici, ['deneme', 'paytr'], 'Sanal POS sağlayıcısı') : '';
         if (d.acik && !saglayici) fail('Sanal POS sağlayıcısı seçin.');
         if (saglayici === 'deneme' && !c.posDeneme) fail('Deneme sağlayıcısı yalnız deneme kurumunda kullanılabilir.');
-        // Gizli anahtar ekrana geri gönderilmez; boş gelirse eskisi korunur.
-        const gizli = d.gizli && d.gizli !== '••••••' ? metin(d.gizli, 200) : a.pos.gizli;
-        if (d.acik && saglayici === 'paytr' && (!d.magazaNo || !d.anahtar || !gizli)) fail('PayTR için mağaza no, anahtar ve gizli anahtar gerekir.');
-        c.ayarYaz('pos', { acik: !!d.acik, saglayici, magazaNo: metin(d.magazaNo, 40), anahtar: metin(d.anahtar, 200), gizli, deneme: d.deneme !== false });
+        // Anahtarlar ekrana geri gönderilmez (yıldız gider); yıldız ya da boş gelirse eskisi korunur. Şifreli saklanır.
+        const yeniMi = (x) => x && x !== c.GIZLI;
+        const gizli = yeniMi(d.gizli) ? c.sifre.metinSifrele(metin(d.gizli, 200)) : a.pos.gizli;
+        const anahtar = yeniMi(d.anahtar) ? c.sifre.metinSifrele(metin(d.anahtar, 200)) : a.pos.anahtar;
+        if (d.acik && saglayici === 'paytr' && (!d.magazaNo || !anahtar || !gizli)) fail('PayTR için mağaza no, anahtar ve gizli anahtar gerekir.');
+        c.ayarYaz('pos', { acik: !!d.acik, saglayici, magazaNo: metin(d.magazaNo, 40), anahtar, gizli, deneme: d.deneme !== false });
       }
-      return { olay: [null, 'ayar', `Kurum ayarı değiştirildi: ${{ kurum: 'kurum bilgileri', kurallar: 'sınav ve ders kuralları', siniflar: 'ehliyet sınıfları', ogrenciDersSecimi: 'öğrencinin ders seçmesi', prim: 'eğitmen primi', ucretler: 'ek ücretler', evrakTurleri: 'evrak listesi', sozlesme: 'sözleşme metni', sms: 'SMS', pos: 'internetten ödeme', konum: 'konum kaydı' }[bolum]}`] };
+      return { olay: [null, 'ayar', `Kurum ayarı değiştirildi: ${{ kurum: 'kurum bilgileri', kurallar: 'sınav ve ders kuralları', siniflar: 'ehliyet sınıfları', ogrenciDersSecimi: 'öğrencinin ders seçmesi', prim: 'eğitmen primi', ucretler: 'ek ücretler', evrakTurleri: 'evrak listesi', sozlesme: 'sözleşme metni', sms: 'SMS', pos: 'internetten ödeme', konum: 'konum kaydı', makbuz: 'makbuz serisi', kvkk: 'kişisel veri', fatura: 'fatura', onKayit: 'ön kayıt ve kaynaklar', hatirlatma: 'otomatik hatırlatma', karne: 'karne konuları', denemeTest: 'deneme testi' }[bolum]}`] };
     },
   },
 };
 
+// Lisanstaki kullanıcı (açık personel hesabı) sınırı. 0 = sınırsız.
+function kullaniciSiniri(c) {
+  const sinir = c.limit().maxKullanici || 0;
+  if (sinir && c.q1('SELECT COUNT(*) n FROM kullanicilar WHERE aktif=1').n >= sinir) fail(`Lisansınız en fazla ${sinir} açık personel hesabı içindir. Kullanılmayan bir hesabı kapatın ya da DC ile görüşün.`, 402);
+}
+function subeKodu(c, v, haricId) {
+  const kod = metin(v, 6).toLocaleUpperCase('tr-TR');
+  if (!kod) return '';
+  if (!/^[A-Z0-9]{2,6}$/.test(kod)) fail('Şube kısa kodu 2-6 harf veya rakam olmalı (Türkçe harf yok). Örnek: CNK');
+  if (c.q1('SELECT 1 FROM subeler WHERE kod=? AND id!=?', kod, haricId || '')) fail('Bu kısa kod başka bir şubede kullanılıyor.');
+  return kod;
+}
 function personelYetkiDenetle(c, k, rol, subeId) {
   c.hakGerek(k, 'personel');
   secim(rol, Object.keys(c.ROLLER), 'Görev');

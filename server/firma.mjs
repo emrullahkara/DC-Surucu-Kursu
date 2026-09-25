@@ -5,6 +5,8 @@
 // gereken bilgi sunucudan hiç gönderilmez.
 import { randomBytes, scryptSync, timingSafeEqual, createHash, randomUUID } from 'node:crypto';
 import { IsHatasi, fail, metin, gun, bugun, SINIFLAR, SINAV_HAKKI, tcMaskele, hesapDurumu } from './domain.mjs';
+import { sutunEkle } from './db-ortak.mjs';
+import { sifreleyici } from './sifreleme.mjs';
 import temel from './moduller/temel.mjs';
 import ogrenci from './moduller/ogrenci.mjs';
 import para from './moduller/para.mjs';
@@ -14,10 +16,19 @@ import rapor from './moduller/rapor.mjs';
 import donem from './moduller/donem.mjs';
 import evrak from './moduller/evrak.mjs';
 import duyuru from './moduller/duyuru.mjs';
-import guvenlik from './moduller/guvenlik.mjs';
+import guvenlik, { sifreKoduVer } from './moduller/guvenlik.mjs';
 import pos from './moduller/pos.mjs';
+import kvkk from './moduller/kvkk.mjs';
+import fatura from './moduller/fatura.mjs';
+import aktarim from './moduller/aktarim.mjs';
+import senet from './moduller/senet.mjs';
+import banka from './moduller/banka.mjs';
+import aday from './moduller/aday.mjs';
+import hatirlatma from './moduller/hatirlatma.mjs';
+import karne, { KARNE_KONULARI } from './moduller/karne.mjs';
+import denemeTesti from './moduller/deneme_testi.mjs';
 
-export const MODULLER = [temel, donem, ogrenci, evrak, para, ders, sinav, rapor, duyuru, guvenlik, pos];
+export const MODULLER = [temel, donem, ogrenci, evrak, para, banka, senet, aday, ders, karne, sinav, rapor, duyuru, hatirlatma, guvenlik, pos, denemeTesti, kvkk, fatura, aktarim];
 
 // ---------------------------------------------------------------------------
 // ROLLER VE YETKİLER
@@ -88,7 +99,18 @@ export const VARSAYILAN_AYAR = {
   siniflar: SINIFLAR,
   sinavHakki: SINAV_HAKKI,
   eSinavGecme: 70,
+  // Makbuz numarası: 'kurum' (bütün kurumda tek sıra) ya da 'sube' (her şubenin kısa koduyla ayrı sıra).
+  makbuzSerisi: 'kurum',
+  // Sınava girmeyen adayın o hakkı yanmış sayılır (mevzuata göre doğrulanmalı; ayardan kapatılabilir).
+  girmediHakYakar: true,
   dersSuresi: 50,
+  // Eğitmenin bir günde verebileceği en fazla direksiyon dersi (0 = sınır yok). Mevzuata göre doğrulanmalı.
+  egitmenGunlukDers: 8,
+  // Öğrencinin kendi ekranından bir güne seçebileceği en fazla ders.
+  ogrenciGunlukDers: 2,
+  // E-sınavı geçen adayın direksiyon sınavını bitirmesi gereken süre (gün). Süresi yaklaşanlar uyarılır.
+  // Mevzuata göre doğrulanmalı; 0 yazılırsa uyarı verilmez.
+  eSinavGecerlilikGun: 730,
   konumKaydi: false,
   ogrenciDersSecimi: { acik: true, bas: '09:00', bit: '18:00', enErkenGun: 1, enGecGun: 14 },
   prim: { direksiyon: 0, teorik: 0 },
@@ -97,7 +119,19 @@ export const VARSAYILAN_AYAR = {
   sozlesmeMetni: '',
   // Kayıtta istenen evraklar (kurum değiştirebilir).
   evrakTurleri: ['Kimlik fotokopisi', 'Sağlık raporu', 'Öğrenim belgesi', 'Biyometrik fotoğraf'],
-  sms: { acik: false, saglayici: '', baslik: '' },
+  sms: { acik: false, saglayici: '', baslik: '', kullanici: '', sifre: '' },
+  // Kişisel veri: aydınlatma metni (boşsa örnek metin), metin sürümü, kurs bittikten sonra saklama süresi (yıl; 0 = süresiz).
+  kvkk: { metin: '', surum: 1, saklamaYil: 10 },
+  // Otomatik hatırlatma: her gün "saat"ten sonra hazırlanır. Gün sayısı: kaç gün önceden (-1 = kapalı, 0 = aynı gün).
+  hatirlatma: { acik: false, saat: '18:00', dersGunOnce: 1, sinavGunOnce: 1, taksitGunOnce: 1, gecikenHaftalik: false, sablonlar: {} },
+  // Direksiyon eğitim karnesi konuları (kurum değiştirebilir) ve e-sınav deneme testi.
+  karneKonulari: KARNE_KONULARI,
+  denemeTest: { acik: true, soruSayisi: 50, sureDk: 45 },
+  // İnternetten ön kayıt formu (kursun web sitesine bağlantı verilir) ve kayıt kaynakları (reklam geri dönüşü için).
+  onKayit: { acik: false, mesaj: '' },
+  kaynaklar: ['Tavsiye (tanıdık)', 'İnternet araması', 'Sosyal medya', 'Tabela / yoldan geçerken', 'Broşür / ilan', 'Eski öğrencimiz', 'İnternet (ön kayıt)', 'Diğer'],
+  // Fatura listesi için KDV oranı (tutarlar KDV dahil kabul edilir). Muhasebeciyle doğrulanmalı.
+  fatura: { kdvOrani: 20 },
   pos: { acik: false, saglayici: '', magazaNo: '', anahtar: '', gizli: '', deneme: true },
 };
 
@@ -116,7 +150,7 @@ CREATE TABLE IF NOT EXISTS giris_denemeleri(anahtar TEXT PRIMARY KEY, sayi INTEG
 CREATE TABLE IF NOT EXISTS islem_kayit(istek_no TEXT PRIMARY KEY, kullanici_id TEXT NOT NULL, sonuc TEXT NOT NULL, zaman TEXT NOT NULL);
 `;
 
-const OLAY_HAK = { kasa: 'kasa', odeme: 'tahsilat', personel: 'personel', arac: 'personel', guvenlik: 'personel', ayar: 'personel' };
+const OLAY_HAK = { kasa: 'kasa', odeme: 'tahsilat', personel: 'personel', arac: 'personel', guvenlik: 'personel', ayar: 'personel', aday: 'kayit' };
 const OTURUM_SURESI = 12 * 3600 * 1000;
 const KILIT_SINIRI = 5;
 const KILIT_SURESI = 15 * 60 * 1000;
@@ -126,22 +160,39 @@ export const adSoyad = (o) => `${o.ad} ${o.soyad}`;
 // Bütün firma şeması: temel + modüllerin tabloları. Bulut sürümü de bunu kullanır.
 export function semaKur(db) {
   db.exec(TEMEL_SEMA);
+  sutunEkle(db, 'kullanicilar', 'son_giris', 'TEXT');
   for (const m of MODULLER) m.sema?.(db);
 }
 
 // ---------------------------------------------------------------------------
 // FİRMA MOTORU
 // ---------------------------------------------------------------------------
-export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomBytes, limit = () => ({ maxSube: 1000 }), posDeneme = false, disIstek = globalThis.fetch } = {}) {
+export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomBytes, limit = () => ({ maxSube: 1000, maxKullanici: 0 }), posDeneme = false, disIstek = globalThis.fetch,
+  veriAnahtari = null, smsDeneme = posDeneme } = {}) {
   semaKur(db);
+  const sifre = sifreleyici(veriAnahtari);
   const { q, q1, run, islemde } = db;
   const bugunStr = () => bugun(saatKaynagi());
 
   // Canlı bildirim: sahadan girilen kayıt merkezin ekranına anında düşer.
   // Her dinleyici kendi kapsamındaki (şubesindeki) olayları alır.
   const dinleyiciler = new Set();
+  // Her olayda dinleyicinin oturumu yeniden okunur: girişi kapatılan, şifresi ya da görevi değişen personel
+  // canlı akışı almaya devam etmez; yetkisi değişenin süzgeci de hemen güncellenir.
   function yayinla(olay) {
-    for (const d of dinleyiciler) if (olayGorebilir(d.k, olay)) d.yaz(olay);
+    for (const d of dinleyiciler) {
+      const ot = oturumBul(d.oturum);
+      if (!ot || ot.tur !== 'personel') { dinleyiciler.delete(d); d.kapat?.(); continue; }
+      d.k = ot.k;
+      if (olayGorebilir(d.k, olay)) d.yaz(olay);
+    }
+  }
+  // Dışarıdan belli aralıklarla çağrılır (olay olmasa da kapanan oturumun akışı kesilsin).
+  function dinleyicileriDenetle() {
+    for (const d of dinleyiciler) {
+      const ot = oturumBul(d.oturum);
+      if (!ot || ot.tur !== 'personel') { dinleyiciler.delete(d); d.kapat?.(); }
+    }
   }
   function olayYaz(k, subeId, tur, yazi, ek = {}) {
     const zaman = simdi();
@@ -158,6 +209,14 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
       } catch { /* bozuk ayar yok sayılır */ }
     }
     return a;
+  }
+  // Ayarların ekrana giden hali: gizli anahtarlar yerine yıldız gönderilir (boş gelirse eskisi korunur).
+  const GIZLI = '••••••';
+  function ayarEkrana(a) {
+    const x = structuredClone(a);
+    x.pos = { ...x.pos, gizli: x.pos.gizli ? GIZLI : '', anahtar: x.pos.anahtar ? GIZLI : '' };
+    x.sms = { ...x.sms, sifre: x.sms.sifre ? GIZLI : '' };
+    return x;
   }
   const ayarYaz = (anahtar, deger) =>
     run('INSERT INTO ayarlar(anahtar,deger) VALUES(?,?) ON CONFLICT(anahtar) DO UPDATE SET deger=excluded.deger', anahtar, JSON.stringify(deger));
@@ -202,20 +261,23 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
     if (izin) fail(`${e.ad} ${tarih} tarihinde izinli (${izin.tur}).`);
     return e;
   }
-  function aracAl(subeId, id) {
+  // Arızalı araç (arıza başlangıcı ile bitişi arasında) derse verilemez. Gider girerken arıza engel değildir.
+  const aracArizali = (a, tarih) => !!a.ariza && a.ariza_bas <= tarih && (!a.ariza_bit || a.ariza_bit >= tarih);
+  function aracAl(subeId, id, { tarih = bugunStr(), arizaSerbest = false } = {}) {
     if (!id) return null;
     const a = q1('SELECT * FROM araclar WHERE id=? AND aktif=1', String(id));
     if (!a || a.sube_id !== subeId) fail('Araç bu şubede bulunamadı.');
+    if (!arizaSerbest && aracArizali(a, tarih)) fail(`${a.plaka} ${tarih.split('-').reverse().join('.')} tarihinde arızalı / kullanım dışı (${a.ariza}).`);
     return a;
   }
 
   // Öğrencinin borcu: paket ücret + ek kalemler - indirimler; ödenen: ödemeler - iadeler.
   const odenenToplam = (ogrId) =>
     q1("SELECT COALESCE(SUM(CASE WHEN tur='iade' THEN -tutar ELSE tutar END),0) t FROM odemeler WHERE ogrenci_id=? AND iptal=0", ogrId).t;
-  const kalemToplam = (ogrId) => q1('SELECT COALESCE(SUM(tutar),0) t FROM ucret_kalemleri WHERE ogrenci_id=? AND iptal=0', ogrId).t;
-  function hesap(o) {
-    const kalemler = q('SELECT id,tur,aciklama,tutar,tarih,iptal FROM ucret_kalemleri WHERE ogrenci_id=? ORDER BY tarih', o.id);
-    const taksitler = q('SELECT vade,tutar FROM taksitler WHERE ogrenci_id=? ORDER BY vade', o.id);
+  // on: toplu hesapta önceden okunmuş kalemler, taksitler ve ödenen (her öğrenci için ayrı sorgu yapılmasın).
+  function hesap(o, on = null) {
+    const kalemler = on ? on.kalemler : q('SELECT id,tur,aciklama,tutar,tarih,iptal FROM ucret_kalemleri WHERE ogrenci_id=? ORDER BY tarih', o.id);
+    const taksitler = on ? on.taksitler : q('SELECT vade,tutar FROM taksitler WHERE ogrenci_id=? ORDER BY vade', o.id);
     // Ek kalemler ekleneceği gün vadelidir; indirim (eksi tutar) en son taksitten düşülür.
     const plan = taksitler.slice();
     for (const x of kalemler) if (!x.iptal && x.tutar > 0) plan.push({ vade: x.tarih, tutar: x.tutar, ek: x.aciklama });
@@ -226,10 +288,34 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
       plan[i] = { ...plan[i], tutar: plan[i].tutar - d };
       indirim -= d;
     }
-    const h = hesapDurumu(o.ucret + kalemToplam(o.id), plan.filter((p) => p.tutar > 0), odenenToplam(o.id), bugunStr());
+    const kalemTop = kalemler.filter((x) => !x.iptal).reduce((a, x) => a + x.tutar, 0);
+    const h = hesapDurumu(o.ucret + kalemTop, plan.filter((p) => p.tutar > 0), on ? on.odenen : odenenToplam(o.id), bugunStr());
     return { ...h, paket: o.ucret, kalemler };
   }
+  // Çok öğrencinin hesabı üç sorguda: kalemler, taksitler, ödemeler. Dönüş: Map(öğrenci id -> hesap).
+  function hesapToplu(ogrenciler) {
+    const sonuc = new Map();
+    if (!ogrenciler.length) return sonuc;
+    const kalem = new Map(), taksit = new Map(), odenen = new Map();
+    const grupla = (m, id, x) => { let l = m.get(id); if (!l) m.set(id, (l = [])); l.push(x); };
+    for (const x of q('SELECT ogrenci_id,id,tur,aciklama,tutar,tarih,iptal FROM ucret_kalemleri ORDER BY tarih')) grupla(kalem, x.ogrenci_id, x);
+    for (const x of q('SELECT ogrenci_id,vade,tutar FROM taksitler ORDER BY vade')) grupla(taksit, x.ogrenci_id, { vade: x.vade, tutar: x.tutar });
+    for (const x of q("SELECT ogrenci_id, SUM(CASE WHEN tur='iade' THEN -tutar ELSE tutar END) t FROM odemeler WHERE iptal=0 GROUP BY ogrenci_id")) odenen.set(x.ogrenci_id, x.t);
+    for (const o of ogrenciler) {
+      const kl = (kalem.get(o.id) || []).map(({ ogrenci_id, ...r }) => r);
+      sonuc.set(o.id, hesap(o, { kalemler: kl, taksitler: taksit.get(o.id) || [], odenen: odenen.get(o.id) || 0 }));
+    }
+    return sonuc;
+  }
 
+  // Çok öğrencinin ders sayısı iki sorguda. Dönüş: Map(öğrenci id -> {teorik, direksiyon}).
+  function dersSayaciToplu() {
+    const m = new Map();
+    const al = (id) => { let s = m.get(id); if (!s) m.set(id, (s = { teorik: 0, direksiyon: 0 })); return s; };
+    for (const x of q("SELECT ogrenci_id, tur, COUNT(*) n FROM dersler WHERE durum='tamamlandi' GROUP BY ogrenci_id, tur")) al(x.ogrenci_id)[x.tur] += x.n;
+    for (const x of q("SELECT y.ogrenci_id, SUM(t.ders_saati) n FROM yoklamalar y JOIN teorik_oturumlar t ON t.id=y.oturum_id WHERE y.durum='geldi' AND t.durum!='iptal' GROUP BY y.ogrenci_id")) al(x.ogrenci_id).teorik += x.n;
+    return m;
+  }
   function dersSayaci(ogrId) {
     const r = q("SELECT tur, COUNT(*) n FROM dersler WHERE ogrenci_id=? AND durum='tamamlandi' GROUP BY tur", ogrId);
     const s = { teorik: 0, direksiyon: 0 };
@@ -248,9 +334,13 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
   }
 
   const ctx = {
-    db, q, q1, run, islemde, bugunStr, saatKaynagi, simdi, ayar, ayarYaz, kapsam, subeIzinli, hak, hakGerek, egitmenKisitli,
-    ogrenciGorebilir, ogrenciAl, egitmenAl, aracAl, gorevli, olayGorebilir, hesap, odenenToplam, dersSayaci, olayYaz, etkinHaklar,
-    HAKLAR, ROLLER, VERILEBILIR, sifreKontrol, sifreOzet, sifreDogru, tcMaskele, limit, posDeneme, disIstek,
+    db, q, q1, run, islemde, bugunStr, GIZLI, saatKaynagi, simdi, ayar, ayarYaz, kapsam, subeIzinli, hak, hakGerek, egitmenKisitli,
+    ogrenciGorebilir, ogrenciAl, egitmenAl, aracAl, aracArizali, gorevli, olayGorebilir, hesap, hesapToplu, odenenToplam, dersSayaci, dersSayaciToplu, olayYaz, etkinHaklar,
+    HAKLAR, ROLLER, VERILEBILIR, sifreKontrol, sifreOzet, sifreDogru, tcMaskele, limit, posDeneme, smsDeneme, disIstek, sifre,
+    // Kişisel veriye erişim kaydı (evrak açma, MEBBİS listesi, veri dökümü): kim, ne zaman, kimin verisine.
+    erisimYaz(kim, ogrenciId, tur, aciklama = '') {
+      run('INSERT INTO kisisel_veri_erisim(zaman,kullanici,ogrenci_id,tur,aciklama) VALUES(?,?,?,?,?)', simdi(), kim.ad, ogrenciId, tur, String(aciklama).slice(0, 300));
+    },
     // İşlem dışında (ör. ödeme bildirimi) kayıt yazıp canlı akışa duyurmak için.
     olayYayinla(kim, subeId, tur, yazi) { yayinla(olayYaz(kim, subeId, tur, yazi)); },
   };
@@ -265,10 +355,11 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
       ben: { id: k.id, ad: k.ad, rol: k.rol, sube_id: k.sube_id, haklar: h, kullanici_adi: k.kullanici_adi, totp: !!k.totp_gizli },
       kurum: { ad: q1('SELECT ad FROM kurum')?.ad || '', ...a.kurum },
       bugun: bugunStr(),
-      tanimlar: { haklar: HAKLAR, roller: ROLLER, siniflar: a.siniflar, sinavHakki: a.sinavHakki, eSinavGecme: a.eSinavGecme, dersSuresi: a.dersSuresi, konumKaydi: a.konumKaydi },
+      tanimlar: { haklar: HAKLAR, roller: ROLLER, siniflar: a.siniflar, sinavHakki: a.sinavHakki, eSinavGecme: a.eSinavGecme, dersSuresi: a.dersSuresi, konumKaydi: a.konumKaydi,
+        egitmenGunlukDers: a.egitmenGunlukDers, eSinavGecerlilikGun: a.eSinavGecerlilikGun, girmediHakYakar: a.girmediHakYakar, makbuzSerisi: a.makbuzSerisi },
     };
     // Ayarların tamamı (sanal POS gizli anahtarı hariç) yalnız yöneticiye gider.
-    if (k.rol === 'yonetici') v.ayarlar = { ...a, pos: { ...a.pos, gizli: a.pos.gizli ? '••••••' : '' } };
+    if (k.rol === 'yonetici') v.ayarlar = ayarEkrana(a);
     for (const m of MODULLER) m.veri?.(ctx, k, v);
     return v;
   }
@@ -306,6 +397,12 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
     return { olay: [k.sube_id, 'personel', `${k.ad} şifresini değiştirdi`] };
   };
 
+  // Bütün cihazlardaki oturumları kapatır (telefonunu kaybeden ya da şifresinin görüldüğünden şüphelenen personel).
+  ISLEMLER.oturumlari_kapat = (c, k) => {
+    run("DELETE FROM oturumlar WHERE tur='personel' AND kimlik=?", k.id);
+    return { olay: [k.sube_id, 'guvenlik', `${k.ad} bütün cihazlardaki oturumlarını kapattı`] };
+  };
+
   function calistir(tablo, k, g, kimlikNo) {
     const tur = String(g?.islem || '');
     const f = Object.hasOwn(tablo, tur) ? tablo[tur] : null;
@@ -333,28 +430,40 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
   // -------------------------------------------------------------------------
   // GİRİŞ
   // -------------------------------------------------------------------------
-  function denemeKontrol(anahtar) {
-    const d = q1('SELECT * FROM giris_denemeleri WHERE anahtar=?', anahtar);
-    if (d && d.kilit_bitis > Date.now()) fail(`Çok fazla hatalı deneme. ${Math.ceil((d.kilit_bitis - Date.now()) / 60000)} dakika sonra tekrar deneyin.`, 429);
+  // Hatalı giriş sayacı üç ayrı anahtarla tutulur:
+  //  - kişi + yer (IP): 5 hatada 15 dakika (normal unutkanlık)
+  //  - yalnız kişi: 20 hatada 15 dakika (farklı yerlerden aynı hesaba saldırı). Başkası bir öğrenciyi
+  //    kilitlemek isterse 20 deneme yapması gerekir; kendi yerinden 5 denemede kendisi kilitlenir.
+  //  - yalnız yer: 30 hatada 15 dakika (aynı yerden birçok kullanıcı adının denenmesi)
+  const denemeAnahtarlari = (kisi, ip) => [[`${kisi}@${ip || '-'}`, KILIT_SINIRI], [kisi, KILIT_SINIRI * 4], ...(ip ? [[`ip:${ip}`, KILIT_SINIRI * 6]] : [])];
+  function denemeKontrol(kisi, ip) {
+    for (const [anahtar] of denemeAnahtarlari(kisi, ip)) {
+      const d = q1('SELECT * FROM giris_denemeleri WHERE anahtar=?', anahtar);
+      if (d && d.kilit_bitis > Date.now()) fail(`Çok fazla hatalı deneme. ${Math.ceil((d.kilit_bitis - Date.now()) / 60000)} dakika sonra tekrar deneyin.`, 429);
+    }
   }
-  function hataliDeneme(anahtar) {
-    const d = q1('SELECT * FROM giris_denemeleri WHERE anahtar=?', anahtar);
-    const sayi = (d && d.kilit_bitis > 0 && d.kilit_bitis <= Date.now() ? 0 : d?.sayi || 0) + 1;
-    const kilit = sayi >= KILIT_SINIRI ? Date.now() + KILIT_SURESI : 0;
-    run('INSERT INTO giris_denemeleri(anahtar,sayi,kilit_bitis) VALUES(?,?,?) ON CONFLICT(anahtar) DO UPDATE SET sayi=excluded.sayi, kilit_bitis=excluded.kilit_bitis', anahtar, kilit ? 0 : sayi, kilit);
+  function hataliDeneme(kisi, ip) {
+    for (const [anahtar, sinir] of denemeAnahtarlari(kisi, ip)) {
+      const d = q1('SELECT * FROM giris_denemeleri WHERE anahtar=?', anahtar);
+      const sayi = (d && d.kilit_bitis > 0 && d.kilit_bitis <= Date.now() ? 0 : d?.sayi || 0) + 1;
+      const kilit = sayi >= sinir ? Date.now() + KILIT_SURESI : 0;
+      run('INSERT INTO giris_denemeleri(anahtar,sayi,kilit_bitis) VALUES(?,?,?) ON CONFLICT(anahtar) DO UPDATE SET sayi=excluded.sayi, kilit_bitis=excluded.kilit_bitis', anahtar, kilit ? 0 : sayi, kilit);
+    }
   }
+  // Başarılı girişte yalnız o kişinin o yerdeki sayacı sıfırlanır; genel sayaçlar kendi süresiyle düşer.
+  const denemeTemizle = (kisi, ip) => run('DELETE FROM giris_denemeleri WHERE anahtar=?', `${kisi}@${ip || '-'}`);
   function oturumAc(tur, kimlik) {
     const anahtar = rastgele(32).toString('base64url');
     run('DELETE FROM oturumlar WHERE bitis<?', Date.now());
     run('INSERT INTO oturumlar(anahtar,tur,kimlik,bitis) VALUES(?,?,?,?)', ozet(anahtar), tur, kimlik, Date.now() + OTURUM_SURESI);
     return { deger: anahtar, yas: OTURUM_SURESI / 1000 };
   }
-  function personelGiris(g) {
+  function personelGiris(g, ip = '') {
     const kad = metin(g.kullaniciAdi, 40, true, 'Kullanıcı adı').toLocaleLowerCase('tr-TR');
     const anahtar = 'p:' + kad;
-    denemeKontrol(anahtar);
+    denemeKontrol(anahtar, ip);
     const k = q1('SELECT * FROM kullanicilar WHERE kullanici_adi=?', kad);
-    if (!k || !sifreDogru(g.sifre, k.sifre) || !k.aktif) { hataliDeneme(anahtar); fail('Kullanıcı adı veya şifre hatalı.', 401); }
+    if (!k || !sifreDogru(g.sifre, k.sifre) || !k.aktif) { hataliDeneme(anahtar, ip); fail('Kullanıcı adı veya şifre hatalı.', 401); }
     const kapi = g.kapi === 'yonetici' ? 'yonetici' : 'personel';
     const yoneticiRol = ['yonetici', 'sube_muduru'].includes(k.rol);
     if (kapi === 'yonetici' && !yoneticiRol) fail('Bu hesap personel hesabıdır. "Personel girişi" bölümünü kullanın.', 403);
@@ -363,18 +472,19 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
     // İsteğe bağlı ek doğrulama kodu (Authenticator). Açmayan kullanıcı bugünkü gibi girer.
     const ek = MODULLER.map((m) => m.girisEkKontrol?.(ctx, k, g)).find(Boolean);
     if (ek === 'kod_gerekli') return { kodGerekli: true };
-    if (ek === 'kod_yanlis') { hataliDeneme(anahtar); fail('Doğrulama kodu hatalı.', 401); }
-    run('DELETE FROM giris_denemeleri WHERE anahtar=?', anahtar);
+    if (ek === 'kod_yanlis') { hataliDeneme(anahtar, ip); fail('Doğrulama kodu hatalı.', 401); }
+    denemeTemizle(anahtar, ip);
+    run('UPDATE kullanicilar SET son_giris=? WHERE id=?', simdi(), k.id);
     return { oturum: oturumAc('personel', k.id) };
   }
-  function ogrenciGiris(g) {
+  function ogrenciGiris(g, ip = '') {
     const tc = metin(g.tc, 11, true, 'T.C. kimlik no');
     const anahtar = 'o:' + tc;
-    denemeKontrol(anahtar);
+    denemeKontrol(anahtar, ip);
     const adaylar = q("SELECT * FROM ogrenciler WHERE tc=? AND portal_sifre IS NOT NULL AND durum!='iptal' ORDER BY kayit_tarihi DESC", tc);
     const o = adaylar.find((x) => sifreDogru(g.sifre, x.portal_sifre));
-    if (!o) { hataliDeneme(anahtar); fail('T.C. kimlik no veya şifre hatalı.', 401); }
-    run('DELETE FROM giris_denemeleri WHERE anahtar=?', anahtar);
+    if (!o) { hataliDeneme(anahtar, ip); fail('T.C. kimlik no veya şifre hatalı.', 401); }
+    denemeTemizle(anahtar, ip);
     return { oturum: oturumAc('ogrenci', o.id) };
   }
   function oturumBul(anahtar) {
@@ -419,14 +529,15 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
         if (r) return r;
       }
       if (yol === '/api/durum' && yontem === 'GET') {
-        return { durum: 200, veri: { kurulu: !!q1('SELECT 1 FROM kullanicilar LIMIT 1'), kurum: q1('SELECT ad FROM kurum')?.ad || '', logo: ayar().kurum.logo } };
+        const a = ayar();
+        return { durum: 200, veri: { kurulu: !!q1('SELECT 1 FROM kullanicilar LIMIT 1'), kurum: q1('SELECT ad FROM kurum')?.ad || '', logo: a.kurum.logo, onKayit: !!a.onKayit?.acik } };
       }
       if (yol === '/api/giris' && yontem === 'POST') {
-        const r = personelGiris(govde);
+        const r = personelGiris(govde, ip);
         return r.kodGerekli ? { durum: 200, veri: { kodGerekli: true } } : { durum: 200, veri: { tamam: true }, oturum: r.oturum };
       }
       if (yol === '/api/ogrenci-giris' && yontem === 'POST') {
-        const r = ogrenciGiris(govde);
+        const r = ogrenciGiris(govde, ip);
         return { durum: 200, veri: { tamam: true }, oturum: r.oturum };
       }
       const ot = oturumBul(oturum);
@@ -467,16 +578,51 @@ export function firmaAc({ db, saatKaynagi = () => new Date(), rastgele = randomB
   }
 
   // Canlı akışa abone ol. Oturum geçersizse null döner.
-  function abone(oturum, yaz) {
+  function abone(oturum, yaz, kapat) {
     const ot = oturumBul(oturum);
     if (!ot || ot.tur !== 'personel') return null;
-    const d = { k: ot.k, yaz };
+    const d = { k: ot.k, yaz, kapat, oturum };
     dinleyiciler.add(d);
     return () => dinleyiciler.delete(d);
   }
 
+  // Zamanlanmış işler (hatırlatmalar): sunucu belli aralıklarla çağırır. Bir modülün hatası diğerini durdurmaz.
+  async function zamanli() {
+    for (const m of MODULLER) {
+      if (!m.zamanli) continue;
+      try { await m.zamanli(ctx); } catch (e) { console.error(`Zamanlı iş (${m.ad}):`, e); }
+    }
+  }
+
+  // Kurumun yöneticisi şifresini unutursa DC platform yöneticisi sıfırlama kodu üretir.
+  function yoneticiKoduUret(kullaniciAdi, veren) {
+    const u = q1("SELECT * FROM kullanicilar WHERE kullanici_adi=? AND aktif=1 AND rol IN ('yonetici','sube_muduru')", metin(kullaniciAdi, 40, true, 'Kullanıcı adı').toLocaleLowerCase('tr-TR'));
+    if (!u) fail('Bu kullanıcı adıyla açık bir yönetici yok.', 404);
+    return islemde(() => {
+      const kod = sifreKoduVer(ctx, u, veren);
+      yayinla(olayYaz({ ad: veren }, u.sube_id, 'guvenlik', `${u.ad} için DC tarafından şifre sıfırlama kodu üretildi`));
+      return { kod, ad: u.ad };
+    });
+  }
+
+  // DC platformu için kullanım özeti: yalnız sayılar, içerik yok.
+  function kullanimOzeti() {
+    const n = (sql, ...p) => q1(sql, ...p)?.n || 0;
+    return {
+      sube: n('SELECT COUNT(*) n FROM subeler WHERE aktif=1'),
+      personel: n('SELECT COUNT(*) n FROM kullanicilar WHERE aktif=1'),
+      ogrenci: n('SELECT COUNT(*) n FROM ogrenciler'),
+      aktifOgrenci: n("SELECT COUNT(*) n FROM ogrenciler WHERE durum='aktif'"),
+      buAyKayit: n('SELECT COUNT(*) n FROM ogrenciler WHERE kayit_tarihi>=?', bugunStr().slice(0, 8) + '01'),
+      buAyDers: n("SELECT COUNT(*) n FROM dersler WHERE durum='tamamlandi' AND tarih>=?", bugunStr().slice(0, 8) + '01'),
+      evrakMb: Math.round(n('SELECT COALESCE(SUM(boyut),0) n FROM evraklar') / 1048576),
+      sonGiris: q1('SELECT MAX(son_giris) t FROM kullanicilar')?.t || '',
+      sonHareket: q1('SELECT MAX(zaman) t FROM olaylar')?.t || '',
+    };
+  }
+
   return {
-    istek, abone, kurulum, ctx,
+    istek, abone, kurulum, ctx, dinleyicileriDenetle, ozet: kullanimOzeti, zamanli, yoneticiKoduUret,
     dinleyiciSayisi: () => dinleyiciler.size,
     kapat() { dinleyiciler.clear(); db.kapat?.(); },
   };

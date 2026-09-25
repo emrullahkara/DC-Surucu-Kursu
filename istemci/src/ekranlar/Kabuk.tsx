@@ -1,6 +1,6 @@
 // Personel ekranının çerçevesi: üst şerit, menü, canlı bağlantı, internetsiz kayıt sırası.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, ApiHatasi, firmaKodu, kuyrukGonder, kuyrukOku } from '../api';
+import { api, ApiHatasi, firmaKodu, kuyrukGonder, kuyrukOku, kuyrukSahibiAyarla, sonVeriOku, sonVeriYaz } from '../api';
 import { BaglamC, type Baglam, type Sekme } from '../baglam';
 import { bildir } from '../bilesenler/ortak';
 import type { Olay, Veri } from '../tipler';
@@ -17,6 +17,8 @@ import { Yonetim } from './Yonetim';
 import { Ayarlar } from './Ayarlar';
 import { Hesap } from './Hesap';
 import { Duyurular } from './Duyurular';
+import { Adaylar } from './Adaylar';
+import { gunFarki, tarih, zamanYaz } from '../yardim';
 
 export function Kabuk({ firma, cikis, oturumBitti }: { firma: FirmaBilgi; cikis: () => void; oturumBitti: () => void }) {
   const [v, setV] = useState<Veri | null>(null);
@@ -26,18 +28,44 @@ export function Kabuk({ firma, cikis, oturumBitti }: { firma: FirmaBilgi; cikis:
   const [canli, setCanli] = useState(false);
   const [, setSayac] = useState(0);
   const [yeniOlay, setYeniOlay] = useState<Set<number>>(new Set());
+  const [cevrimdisi, setCevrimdisi] = useState<string | null>(null);
   const zamanlayici = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const bayat = useRef(false);
 
   const yenile = useCallback(async () => {
-    try { setV(await api<Veri>('/api/veri')); }
-    catch (e) {
+    try {
+      const yeni = await api<Veri>('/api/veri');
+      kuyrukSahibiAyarla(yeni.ben.id);
+      sonVeriYaz(yeni);
+      setCevrimdisi(null);
+      setV(yeni);
+    } catch (e) {
       const d = (e as ApiHatasi).durum;
       if (d === 401 || d === 402) oturumBitti();
-      else if (!d) setCanli(false);
-      else bildir((e as Error).message, 'hata');
+      else if (!d) {
+        setCanli(false);
+        // İnternet yok: eğitmenin telefonda saklanan son listesi gösterilir.
+        setV((eski) => {
+          if (eski) return eski;
+          const s = sonVeriOku<Veri>();
+          if (s) { kuyrukSahibiAyarla(s.v.ben.id); setCevrimdisi(s.zaman); return s.v; }
+          return eski;
+        });
+      } else bildir((e as Error).message, 'hata');
     }
   }, [oturumBitti]);
-  const yenileGecikmeli = useCallback(() => { clearTimeout(zamanlayici.current); zamanlayici.current = setTimeout(yenile, 300); }, [yenile]);
+  // Canlı olaylar art arda gelirse (ör. toplu işlem) ekran bir kez yenilenir; ekran görünmüyorsa
+  // yenileme ekran açılana kadar bekletilir (telefonda pil ve internet tasarrufu).
+  const yenileGecikmeli = useCallback(() => {
+    clearTimeout(zamanlayici.current);
+    if (document.visibilityState === 'hidden') { bayat.current = true; return; }
+    zamanlayici.current = setTimeout(yenile, 1200);
+  }, [yenile]);
+  useEffect(() => {
+    const gorunur = () => { if (document.visibilityState === 'visible' && bayat.current) { bayat.current = false; yenile(); } };
+    document.addEventListener('visibilitychange', gorunur);
+    return () => document.removeEventListener('visibilitychange', gorunur);
+  }, [yenile]);
   const kuyrugu = useCallback(async () => {
     if (!kuyrukOku().length) return;
     const n = await kuyrukGonder((m) => bildir(m, 'hata'));
@@ -67,7 +95,7 @@ export function Kabuk({ firma, cikis, oturumBitti }: { firma: FirmaBilgi; cikis:
   }, [yenileGecikmeli, kuyrugu]);
 
   const git = useCallback((s: Sekme, id?: string) => { setSekme(s); if (id) setOgrId(id); window.scrollTo(0, 0); }, []);
-  const b: Baglam | null = useMemo(() => v && ({ v, yenile, sube, subeSec: setSube, git, sekme, ogrId, canli, yerel: () => setSayac((x) => x + 1) }), [v, yenile, sube, git, sekme, ogrId, canli]);
+  const b: Baglam | null = useMemo(() => v && ({ v, yenile, sube, subeSec: setSube, git, sekme, ogrId, canli, cevrimdisi, yerel: () => setSayac((x) => x + 1) }), [v, yenile, sube, git, sekme, ogrId, canli, cevrimdisi]);
   if (!v || !b) return <p className="yukleniyor">Yükleniyor…</p>;
 
   const hak = (h: string) => v.ben.haklar.includes(h as never);
@@ -76,7 +104,8 @@ export function Kabuk({ firma, cikis, oturumBitti }: { firma: FirmaBilgi; cikis:
     ...(hak('tahsilat') || hak('kasa') ? [['kasa', 'Kasa'] as [Sekme, string]] : []),
     ...(hak('rapor') ? [['raporlar', 'Raporlar'] as [Sekme, string]] : []),
     ...(hak('personel') ? [['araclar', 'Araçlar'] as [Sekme, string]] : []),
-    ...(hak('kayit') ? [['duyurular', 'Duyurular'] as [Sekme, string]] : []),
+    ...(hak('kayit') ? [['adaylar', 'Adaylar'] as [Sekme, string]] : []),
+    ...(hak('kayit') || hak('tahsilat') ? [['duyurular', 'Duyuru ve hatırlatma'] as [Sekme, string]] : []),
     ...(hak('personel') ? [['yonetim', v.ben.rol === 'yonetici' ? 'Şubeler ve personel' : 'Personel'] as [Sekme, string]] : []),
     ...(v.ben.rol === 'yonetici' ? [['ayarlar', 'Ayarlar'] as [Sekme, string]] : []),
     ['hesap', 'Hesabım'],
@@ -85,7 +114,9 @@ export function Kabuk({ firma, cikis, oturumBitti }: { firma: FirmaBilgi; cikis:
   const kuyruk = kuyrukOku().length;
   const cokSube = v.ben.rol === 'yonetici' && v.subeler.length > 1;
   const Ekran = { ozet: Ozet, ogrenciler: Ogrenciler, ogrenci: OgrenciDetay, dersler: Dersler, teorik: Teorik, sinavlar: Sinavlar, kasa: Kasa,
-    raporlar: Raporlar, araclar: Araclar, yonetim: Yonetim, ayarlar: Ayarlar, hesap: Hesap, duyurular: Duyurular }[sekme] || Ozet;
+    raporlar: Raporlar, araclar: Araclar, yonetim: Yonetim, ayarlar: Ayarlar, hesap: Hesap, duyurular: Duyurular, adaylar: Adaylar }[sekme] || Ozet;
+  // Lisans bitişine 30 gün kala yöneticiye uyarı.
+  const lisansKalan = firma.lisansBitis ? gunFarki(v.bugun, firma.lisansBitis) : 999;
 
   return (
     <BaglamC.Provider value={b}>
@@ -107,6 +138,8 @@ export function Kabuk({ firma, cikis, oturumBitti }: { firma: FirmaBilgi; cikis:
           <button className="dugme kucuk ust-cikis" onClick={cikis}>Çıkış</button>
         </div>
       </header>
+      {cevrimdisi && <div className="serit kopuk">İnternet yok. {zamanYaz(cevrimdisi)} tarihli son liste gösteriliyor; girdiğiniz ders sonuçları telefonda bekler ve bağlantı gelince gönderilir.</div>}
+      {v.ben.rol === 'yonetici' && lisansKalan <= 30 && <div className="serit uyari">Kullanım süreniz {tarih(firma.lisansBitis)} tarihinde bitiyor ({Math.max(0, lisansKalan)} gün). Kesinti olmaması için DC ile görüşün.</div>}
       <nav className="menu">
         {menu.map(([k, e]) => <button key={k} className={secili === k ? 'secili' : ''} onClick={() => git(k)}>{e}</button>)}
       </nav>

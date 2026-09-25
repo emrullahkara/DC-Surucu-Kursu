@@ -41,21 +41,14 @@ export const DURUM_SINAV: Record<string, [string, string]> = { bekliyor: ['Sonu�
 export const DURUM_TAKSIT: Record<string, [string, string]> = { odendi: ['Ödendi', 'yesil'], gecikti: ['Gecikti', 'kirmizi'], bekliyor: ['Bekliyor', 'gri'] };
 export const SINAV_AD: Record<string, string> = { e_sinav: 'E-sınav', direksiyon: 'Direksiyon sınavı' };
 export const DERS_AD: Record<string, string> = { teorik: 'Teorik', direksiyon: 'Direksiyon' };
-export const YONTEM: Record<string, string> = { nakit: 'Nakit', kart: 'Kredi kartı', havale: 'Havale / EFT', internet: 'İnternetten kart', veresiye: 'Veresiye' };
+export const YONTEM: Record<string, string> = { nakit: 'Nakit', kart: 'Kredi kartı', havale: 'Havale / EFT', internet: 'İnternetten kart', veresiye: 'Veresiye', devir: 'Önceki programdan devir' };
 
-// Excel'in doğrudan açtığı, Türkçe karakterleri bozmayan CSV (noktalı virgül ayraçlı).
-// "=", "+", "-", "@" ile başlayan yazılar Excel'de formül gibi çalışabilir; başına ' eklenir (sayılar hariç).
-function csvHucre(h: string | number) {
-  let t = String(h ?? '');
-  if (/^[=+\-@\t\r]/.test(t) && !/^-?[\d.,]+$/.test(t)) t = "'" + t;
-  return `"${t.replace(/"/g, '""')}"`;
+// Excel çıktısı gerçek .xlsx dosyasıdır (excel.ts). Tutarlar sayı olarak yazılır (Excel'de toplanabilir).
+export { excelIndir } from './excel';
+export const tlCsv = (k: number) => Math.round(k) / 100;
+// 18 yaşından küçük mü (kayıt gününe göre)? Doğum tarihi yoksa bilinmez.
+export function resitDegil(dogum?: string, gun?: string) {
+  if (!dogum || !gun) return false;
+  const [y, a, g] = dogum.split('-').map(Number);
+  return `${String(y + 18).padStart(4, '0')}-${String(a).padStart(2, '0')}-${String(g).padStart(2, '0')}` > gun;
 }
-export function csvIndir(ad: string, satirlar: (string | number)[][]) {
-  const csv = '﻿' + satirlar.map((s) => s.map(csvHucre).join(';')).join('\r\n');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-  a.download = ad;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-export const tlCsv = (k: number) => (k / 100).toFixed(2).replace('.', ',');

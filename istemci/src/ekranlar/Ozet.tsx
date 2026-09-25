@@ -24,6 +24,17 @@ export function Ozet(p: EkranP) {
     ([['muayene', 'Muayene'], ['sigorta', 'Trafik sigortası'], ['kasko', 'Kasko'], ['bakim', 'Bakım']] as const)
       .filter(([k]) => a[k] && gunFarki(bugun, a[k]!) <= 15).map(([k, ad]) => ({ a, ad, gun: gunFarki(bugun, a[k]!) })));
   const eksikEvrak = y.hak('evrak') ? aktif.filter((o) => (o.evrak?.eksik.length || 0) > 0) : [];
+  const aranacak = (v.adaylar || []).filter((a) => ['yeni', 'gorusuluyor'].includes(a.durum) && a.sonraki_arama && a.sonraki_arama <= bugun && (!y.b.sube || !a.sube_id || a.sube_id === y.b.sube));
+  const senetUyari = y.subeSuz(v.senetler).filter((x) => x.durum === 'portfoy' && gunFarki(bugun, x.vade) <= 7).sort((a, b) => a.vade.localeCompare(b.vade));
+  // E-sınav geçerlilik süresi dolmak üzere olanlar (ayar 0 ise uyarı yok).
+  const esSure = v.tanimlar.eSinavGecerlilikGun;
+  const esUyari = esSure ? aktif.map((o) => {
+    const es = v.sinavlar.find((s) => s.ogrenci_id === o.id && s.tur === 'e_sinav' && s.sonuc === 'gecti');
+    if (!es || v.sinavlar.some((s) => s.ogrenci_id === o.id && s.tur === 'direksiyon' && s.sonuc === 'gecti')) return null;
+    const kalan = esSure - gunFarki(es.tarih, bugun);
+    return kalan <= 60 ? { o, kalan } : null;
+  }).filter(Boolean).sort((a, b) => a!.kalan - b!.kalan) as { o: typeof aktif[number]; kalan: number }[] : [];
+  const sifreTalebi = v.sifreTalepleri || [];
 
   return (
     <>
@@ -85,6 +96,40 @@ export function Ozet(p: EkranP) {
             ))}</ul>
           </Kart>
         )}
+        {sifreTalebi.length > 0 && (
+          <Kart baslik="Şifresini unutan personel">
+            <ul className="liste">{sifreTalebi.map((t) => <li key={t.id}>{t.ad} <span className="soluk kucuk">· {zamanYaz(t.olusturma)}</span>
+              <button className="dugme kucuk" style={{ marginLeft: 'auto' }} onClick={() => y.b.git('yonetim')}>Kod ver</button></li>)}</ul>
+          </Kart>
+        )}
+        {aranacak.length > 0 && (
+          <Kart baslik="Bugün aranacak adaylar" sag={<button className="dugme kucuk" onClick={() => y.b.git('adaylar')}>Adaylar</button>}>
+            <ul className="liste">{aranacak.slice(0, 10).map((a) => <li key={a.id}><b>{a.ad} {a.soyad}</b> <a href={telLink(a.telefon)}>{a.telefon}</a>
+              <span className="soluk kucuk">{a.sinif} {a.kaynak && `· ${a.kaynak}`}</span>{a.on_kayit ? <span className="rozet">İnternetten</span> : null}</li>)}</ul>
+          </Kart>
+        )}
+        {senetUyari.length > 0 && (
+          <Kart baslik="Vadesi gelen senetler">
+            <ul className="liste">{senetUyari.slice(0, 12).map((x) => (
+              <li key={x.id} className="tikla" onClick={() => y.b.git('ogrenci', x.ogrenci_id)}>{tarih(x.vade)} · {y.ogrAd(x.ogrenci_id)} · <b>{tl(x.tutar)}</b>
+                {x.vade < bugun ? <span className="rozet kirmizi">{gunFarki(x.vade, bugun)} gün geçti</span> : <span className="rozet sari">{gunFarki(bugun, x.vade)} gün</span>}</li>
+            ))}</ul>
+          </Kart>
+        )}
+        {esUyari.length > 0 && (
+          <Kart baslik="E-sınav geçerlilik süresi dolacaklar">
+            <ul className="liste">{esUyari.slice(0, 12).map(({ o, kalan }) => (
+              <li key={o.id} className="tikla" onClick={() => y.b.git('ogrenci', o.id)}>{o.ad} {o.soyad}
+                {kalan < 0 ? <span className="rozet kirmizi">{-kalan} gün önce doldu</span> : <span className="rozet sari">{kalan} gün kaldı</span>}</li>
+            ))}</ul>
+            <p className="soluk kucuk">Süre Ayarlar &gt; Ders ve sınav kuralları bölümünden değişir (mevzuata göre kontrol edin).</p>
+          </Kart>
+        )}
+        {(v.anonimBekleyen || 0) > 0 && (
+          <Kart baslik="Kişisel veri saklama süresi">
+            <p className="kucuk">Saklama süresi dolmuş <b>{v.anonimBekleyen}</b> eski kayıt var. <button className="baglanti" onClick={() => y.b.git('ayarlar')}>Ayarlar &gt; Kişisel veri</button> bölümünden anonim yapabilirsiniz.</p>
+          </Kart>
+        )}
         {eksikEvrak.length > 0 && (
           <Kart baslik="Evrakı eksik öğrenciler">
             <ul className="liste">{eksikEvrak.slice(0, 12).map((o) => (
@@ -108,6 +153,8 @@ function Sahada() {
   const ogrencilerim = v.ogrenciler.filter((o) => o.egitmen_id === v.ben.id && o.durum === 'aktif');
   const teorik = v.teorikOturumlar.filter((o) => o.egitmen_id === v.ben.id && o.tarih === v.bugun && o.durum !== 'iptal');
   const gorev = v.gorevlendirmeler.filter((g) => g.kullanici_id === v.ben.id && g.sube_id !== v.ben.sube_id);
+  // Bugün derste kullandığı araçlar ve kendi şubesinin araçları (km ve arıza bildirimi için).
+  const araclarim = v.araclar.filter((a) => a.aktif && (a.sube_id === v.ben.sube_id || benim.some((d) => d.arac_id === a.id && d.tarih === v.bugun)));
   return (
     <>
       {gorev.map((g) => <p key={g.id} className="bilgi">{tarih(g.bas)} ile {tarih(g.bit)} arasında <b>{y.subeAd(g.sube_id)}</b> şubesinde de görevlisiniz.</p>)}
@@ -133,6 +180,9 @@ function Sahada() {
             </div>
           );
         }) : <Bos>Bugün planlı dersiniz yok.</Bos>}
+        {bugunDers.filter((d) => d.durum === 'tamamlandi' && d.tur === 'direksiyon' && !(v.karneler || []).some((k) => k.ders_id === d.id)).map((d) => (
+          <p key={d.id} className="bilgi kucuk">{y.ogrAd(d.ogrenci_id)} dersinin karnesi doldurulmadı. <button className="baglanti" onClick={() => E.karne(d.id, d.ogrenci_id)}>Karneyi doldur</button></p>
+        ))}
         <button className="dugme ana buyuk" onClick={() => E.dersSaha()}>+ Plansız ders gir (şimdi tamamlandı)</button>
         <p className="soluk kucuk">Girdiğiniz kayıt merkeze anında düşer. İnternet yoksa telefonunuzda bekler, bağlantı gelince kendiliğinden gönderilir.</p>
       </Kart>
@@ -145,6 +195,18 @@ function Sahada() {
         <Kart baslik="Yaklaşan derslerim" sag={<button className="dugme kucuk" onClick={() => E.dersPlanla()}>+ Ders planla</button>}>
           <DersTablosu liste={yaklasan} tarihGoster />
         </Kart>
+        {araclarim.length > 0 && (
+          <Kart baslik="Araçlar">
+            <ul className="liste">{araclarim.map((a) => (
+              <li key={a.id}><b>{a.plaka}</b> <span className="soluk kucuk">{a.km ? `${a.km.toLocaleString('tr-TR')} km` : 'km girilmedi'}</span>
+                {a.ariza && <span className="rozet kirmizi">Arızalı: {a.ariza}</span>}
+                <span className="dugmeler" style={{ marginLeft: 'auto' }}>
+                  <button className="dugme kucuk" onClick={() => E.aracKm(a)}>Km gir</button>
+                  <button className="dugme kucuk kirmizi" onClick={() => E.aracAriza(a)}>{a.ariza ? 'Düzeldi' : 'Arıza bildir'}</button>
+                </span></li>
+            ))}</ul>
+          </Kart>
+        )}
         <Kart baslik="Öğrencilerim">
           {ogrencilerim.length ? (
             <div className="tablo-kutu"><table><tbody>

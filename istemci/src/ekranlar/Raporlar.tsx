@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useY, type EkranP } from '../baglam';
 import { api } from '../api';
 import { Bos, Kart, Sayi, bildir } from '../bilesenler/ortak';
-import { YONTEM, ayBasi, csvIndir, gunEkle, tarih, tl, tlCsv } from '../yardim';
+import { AylikGrafik, ayAdi } from '../bilesenler/Grafik';
+import { YONTEM, ayBasi, excelIndir, gunEkle, tarih, tl, tlCsv } from '../yardim';
 
 interface Satir {
   sube_id?: string; sube: string; yeniKayit: number; aktifOgrenci: number; tamamlananDers: number; gelmeyen: number;
@@ -12,7 +13,7 @@ interface Satir {
 }
 interface Rapor {
   bas: string; bit: string; satirlar: Satir[]; toplam: Satir; alacakYaslari: Record<string, number>; prim: { direksiyon: number; teorik: number };
-  egitmenler: { id: string; ad: string; sube_id: string; direksiyon: number; teorik: number; gelmeyen: number; dakika: number; prim: number }[];
+  egitmenler: { id: string; ad: string; sube_id: string; direksiyon: number; teorik: number; grupTeorik: number; gelmeyen: number; dakika: number; prim: number }[];
 }
 const oran = (x: { gecen: number; giren: number }) => (x.giren ? `${x.gecen}/${x.giren} (%${Math.round((100 * x.gecen) / x.giren)})` : '—');
 
@@ -35,16 +36,16 @@ export function Raporlar(_p: EkranP) {
   const excel = () => {
     if (!r) return;
     const s = (x: Satir) => [x.sube, x.yeniKayit, x.aktifOgrenci, x.tamamlananDers, x.gelmeyen, x.eSinav.gecen, x.eSinav.giren, x.direksiyonSinav.gecen, x.direksiyonSinav.giren, tlCsv(x.tahsilat), tlCsv(x.gider), tlCsv(x.net), tlCsv(x.alacak), tlCsv(x.geciken), tlCsv(x.tedarikciBorcu)];
-    csvIndir(`sube-raporu-${r.bas}-${r.bit}.csv`, [
+    excelIndir(`sube-raporu-${r.bas}-${r.bit}.xlsx`, [
       ['Şube', 'Yeni kayıt', 'Aktif öğrenci', 'Yapılan ders', 'Gelmeyen', 'E-sınav geçen', 'E-sınava giren', 'Direksiyon geçen', 'Direksiyona giren', 'Tahsilat', 'Gider', 'Net', 'Toplam alacak', 'Geciken', 'Firmalara borç'],
       ...r.satirlar.map(s), s(r.toplam), [], ['Eğitmen', 'Şube', 'Direksiyon', 'Teorik', 'Gelmeyen', 'Saat', 'Prim'],
-      ...r.egitmenler.map((e) => [e.ad, y.subeAd(e.sube_id), e.direksiyon, e.teorik, e.gelmeyen, (e.dakika / 60).toFixed(1).replace('.', ','), tlCsv(e.prim)]),
+      ...r.egitmenler.map((e) => [e.ad, y.subeAd(e.sube_id), e.direksiyon, e.teorik + e.grupTeorik, e.gelmeyen, Math.round(e.dakika / 6) / 10, tlCsv(e.prim)]),
     ]);
   };
   const mebbis = async () => {
     const r = await api<{ liste: { tc: string; ad: string; soyad: string; dogum: string; telefon: string; adres: string; sinif: string; sinifAd: string; mevcutEhliyet: string; kayitTarihi: string; donem: string; sube: string; egitmen: string; ders: { teorik: number; direksiyon: number } }[] }>(`/api/mebbis?bas=${bas}&bit=${bit}`);
     if (!r.liste.length) return bildir('Bu aralıkta yeni kayıt yok.', 'hata');
-    csvIndir(`mebbis-kursiyer-${bas}-${bit}.csv`, [
+    excelIndir(`mebbis-kursiyer-${bas}-${bit}.xlsx`, [
       ['T.C. kimlik no', 'Ad', 'Soyad', 'Doğum tarihi', 'Telefon', 'Adres', 'İstenen sınıf', 'Elindeki belge', 'Kayıt tarihi', 'Dönem', 'Şube', 'Direksiyon eğitmeni', 'Teorik ders', 'Direksiyon ders'],
       ...r.liste.map((o) => [o.tc, o.ad, o.soyad, tarih(o.dogum), o.telefon, o.adres, o.sinifAd, o.mevcutEhliyet, tarih(o.kayitTarihi), o.donem, o.sube, o.egitmen, o.ders.teorik, o.ders.direksiyon]),
     ]);
@@ -101,6 +102,7 @@ export function Raporlar(_p: EkranP) {
           </>
         )}
       </Kart>
+      <AylikRapor />
       {r && (
         <div className="izgara">
           <Kart baslik="Geciken alacağın yaşı">
@@ -111,14 +113,65 @@ export function Raporlar(_p: EkranP) {
             {r.egitmenler.length ? <div className="tablo-kutu"><table>
               <thead><tr><th>Eğitmen</th><th className="sayi-h">Direksiyon</th><th className="sayi-h">Teorik</th><th className="sayi-h">Saat</th><th className="sayi-h">Gelmeyen</th><th className="sayi-h">Prim</th></tr></thead>
               <tbody>{r.egitmenler.map((e) => (
-                <tr key={e.id}><td>{e.ad}<div className="kucuk soluk">{y.subeAd(e.sube_id) || 'Merkez'}</div></td><td className="sayi-h">{e.direksiyon}</td><td className="sayi-h">{e.teorik}</td>
+                <tr key={e.id}><td>{e.ad}<div className="kucuk soluk">{y.subeAd(e.sube_id) || 'Merkez'}</div></td><td className="sayi-h">{e.direksiyon}</td><td className="sayi-h">{e.teorik + e.grupTeorik}{e.grupTeorik ? <div className="kucuk soluk">{e.grupTeorik} grup</div> : null}</td>
                   <td className="sayi-h">{(e.dakika / 60).toLocaleString('tr-TR', { maximumFractionDigits: 1 })}</td><td className="sayi-h">{e.gelmeyen}</td><td className="sayi-h">{tl(e.prim)}</td></tr>
               ))}</tbody>
             </table></div> : <Bos>Bu aralıkta ders yok.</Bos>}
-            <p className="soluk kucuk">Ders başı prim: direksiyon {tl(r.prim.direksiyon)}, teorik {tl(r.prim.teorik)} (Ayarlar'dan değişir). Teorik sayısı bireysel teorik derslerdir; grup dersleri yoklamadan sayılır.</p>
+            <p className="soluk kucuk">Ders başı prim: direksiyon {tl(r.prim.direksiyon)}, teorik {tl(r.prim.teorik)} (Ayarlar'dan değişir). Teorik: bireysel teorik dersler ve yoklaması alınmış grup derslerinin saati.</p>
           </Kart>
         </div>
       )}
     </>
+  );
+}
+
+interface Aylik {
+  aylar: { ay: string; yeniKayit: number; tahsilat: number; gider: number; reklam: number; ders: number; eSinav: { gecen: number; giren: number }; direksiyonSinav: { gecen: number; giren: number }; subeler: Record<string, { yeniKayit: number; tahsilat: number }> }[];
+  subeler: { id: string; ad: string }[]; kaynaklar: { kaynak: string; sayi: number; ciro: number }[]; adaylar: { kaynak: string; sayi: number; kayit: number }[];
+  reklam: number; kayitBasiReklam: number;
+}
+// Son 12 ayın grafikleri: ciro ve gider, yeni kayıt, sınav geçme oranı; kayıt kaynakları ve reklam geri dönüşü.
+function AylikRapor() {
+  const y = useY();
+  const [ay, setAy] = useState(12);
+  const [r, setR] = useState<Aylik | null>(null);
+  useEffect(() => { api<Aylik>(`/api/rapor-aylik?ay=${ay}`).then(setR).catch((e) => bildir(e.message, 'hata')); }, [ay, y.b.v]);
+  if (!r) return null;
+  const aylar = r.aylar.map((x) => x.ay);
+  const sub = y.b.sube;
+  const al = (x: Aylik['aylar'][number], a: 'yeniKayit' | 'tahsilat') => (sub ? x.subeler[sub]?.[a] || 0 : x[a]);
+  const oran = (x: { gecen: number; giren: number }) => (x.giren ? Math.round((100 * x.gecen) / x.giren) : 0);
+  return (
+    <Kart baslik="Aylık gidişat" sag={<select value={ay} onChange={(e) => setAy(Number(e.target.value))} style={{ width: 'auto' }}><option value={6}>Son 6 ay</option><option value={12}>Son 12 ay</option><option value={24}>Son 24 ay</option></select>}>
+      <div className="izgara">
+        <AylikGrafik baslik="Tahsilat ve gider" aylar={aylar} seriler={[{ ad: 'Tahsilat', tur: 'cubuk', para: true, degerler: r.aylar.map((x) => al(x, 'tahsilat')) }, ...(sub ? [] : [{ ad: 'Gider', tur: 'cubuk2' as const, para: true, degerler: r.aylar.map((x) => x.gider) }])]} />
+        <AylikGrafik baslik="Yeni kayıt ve direksiyon geçme oranı (%)" aylar={aylar} seriler={[{ ad: 'Yeni kayıt', tur: 'cubuk', degerler: r.aylar.map((x) => al(x, 'yeniKayit')) }, { ad: 'Direksiyon geçme %', tur: 'cizgi', degerler: r.aylar.map((x) => oran(x.direksiyonSinav)) }]} />
+      </div>
+      {r.subeler.length > 1 && !sub && (
+        <>
+          <h3>Şubelere göre aylık yeni kayıt</h3>
+          <div className="tablo-kutu"><table><thead><tr><th>Şube</th>{aylar.map((a) => <th key={a} className="sayi-h">{ayAdi(a)}</th>)}<th className="sayi-h">Toplam</th></tr></thead>
+            <tbody>{r.subeler.map((s) => (
+              <tr key={s.id}><td>{s.ad}</td>{r.aylar.map((x) => <td key={x.ay} className="sayi-h">{x.subeler[s.id]?.yeniKayit || 0}</td>)}<td className="sayi-h"><b>{r.aylar.reduce((a, x) => a + (x.subeler[s.id]?.yeniKayit || 0), 0)}</b></td></tr>
+            ))}</tbody></table></div>
+        </>
+      )}
+      <div className="izgara">
+        <div>
+          <h3>Kayıtlar nereden geldi?</h3>
+          {r.kaynaklar.length ? <table><thead><tr><th>Kaynak</th><th className="sayi-h">Kayıt</th><th className="sayi-h">Paket tutarı</th></tr></thead>
+            <tbody>{r.kaynaklar.map((k) => <tr key={k.kaynak}><td>{k.kaynak}</td><td className="sayi-h">{k.sayi}</td><td className="sayi-h">{tl(k.ciro)}</td></tr>)}</tbody></table> : <Bos />}
+        </div>
+        <div>
+          <h3>Reklam geri dönüşü</h3>
+          <div className="detay-bilgi">
+            <div><span>Reklam gideri (gider türü "Reklam")</span>{tl(r.reklam)}</div>
+            <div><span>Kayıt başına reklam maliyeti</span>{r.kayitBasiReklam ? tl(r.kayitBasiReklam) : '—'}</div>
+          </div>
+          {r.adaylar.length > 0 && <table style={{ marginTop: 8 }}><thead><tr><th>Aday kaynağı</th><th className="sayi-h">Aday</th><th className="sayi-h">Kayda dönen</th></tr></thead>
+            <tbody>{r.adaylar.map((k) => <tr key={k.kaynak}><td>{k.kaynak}</td><td className="sayi-h">{k.sayi}</td><td className="sayi-h">{k.kayit || 0} ({k.sayi ? Math.round((100 * (k.kayit || 0)) / k.sayi) : 0}%)</td></tr>)}</tbody></table>}
+        </div>
+      </div>
+    </Kart>
   );
 }

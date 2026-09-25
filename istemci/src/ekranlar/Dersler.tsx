@@ -32,6 +32,7 @@ export function Dersler(_p: EkranP) {
       </div>
       {planYetki && <button className="dugme ana" onClick={() => E.dersPlanla(undefined, { tarih: gun })}>+ Ders planla</button>}
       {y.hak('ders') && <button className="dugme" onClick={() => E.topluPlan()}>Toplu planla</button>}
+      {y.hak('ders') && <button className="dugme" onClick={() => E.topluAktar({ bas: gun })} title="Eğitmen hastalandı ya da araç arızalandı">Toplu aktar</button>}
     </>}>
       <div className="suzgec gun-sec">
         <button className="dugme" onClick={() => setGun(gunEkle(gun, -1))}>←</button>

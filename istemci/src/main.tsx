@@ -6,6 +6,10 @@ import { PlatformEkrani } from './ekranlar/Platform';
 import { Bildirimler, Pencere } from './bilesenler/ortak';
 import { YazdirmaAlani } from './yazdir';
 
+// Görünüm tercihleri (karanlık/açık tema, büyük yazı) bu cihazda saklanır; açılışta hemen uygulanır.
+import { gorunumUygula } from './gorunum';
+gorunumUygula();
+
 const platform = location.pathname.startsWith('/platform');
 createRoot(document.getElementById('uygulama')!).render(
   <StrictMode>

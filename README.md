@@ -23,7 +23,15 @@ başka firmanın hiçbir bilgisini göremez.
 | Raporlar | Şube karşılaştırması ve şubeler toplamı, geciken alacak yaşları, eğitmen ders ve prim raporu, MEBBİS için Excel listeleri |
 | Öğrenci ekranı | Ders ilerlemesi, boş saatten kendi dersini seçme, sınav sonuçları, taksitler, duyurular |
 | Canlı akış | Sahada girilen kayıt merkezin ekranına anında düşer |
-| Güvenlik | Hatalı girişte kilit, isteğe bağlı telefon doğrulama kodu ve kurtarma kodları, kayıt defteri |
+| Güvenlik | Hatalı girişte kilit, isteğe bağlı telefon doğrulama kodu ve kurtarma kodları, kayıt defteri, şifremi unuttum, bütün cihazlardan çıkış, evrak ve anahtarların şifreli saklanması |
+| Adaylar | Bilgi almak için arayanlar, tekrar arama günü, görüşme notları; kursun web sitesine konacak internetten ön kayıt formu |
+| Kişisel veri | Aydınlatma metni ve onay kaydı, veri dökümü, erişim kaydı, saklama süresi dolunca anonimleştirme |
+| Senet, banka, fatura | Senet ve çek takibi, banka hesapları ve şubeden merkeze para aktarımı, muhasebeci için fatura listesi (KDV ayrılmış) |
+| Hatırlatma | Ders, sınav ve taksit için her gün otomatik hatırlatma; SMS (Netgsm) ya da öğrenci ekranı ve WhatsApp |
+| Eğitim | Direksiyon eğitim karnesi (konu konu puan), sınava hazır işareti, öğrenci ekranında e-sınav deneme testi ve kurumun soru bankası |
+| Planlama | Araç arızası, ders taşıma, eğitmen hastalandığında dersleri toplu aktarma, eğitmen günlük ders sınırı |
+| Merkez ve DC | Aylık grafikler, kayıt kaynağı ve reklam geri dönüşü; DC için lisans ödemeleri, kullanıcı sınırı, kullanım özeti, günlük yedek ve yedekten dönüş |
+| Kolaylık | Excel'den toplu öğrenci aktarımı, gerçek Excel (.xlsx) çıktıları, koyu tema ve büyük yazı, eğitmen için internetsiz son liste |
 
 Onaylanmış kararların tamamı: [docs/KARARLAR.md](docs/KARARLAR.md) · Kullanım rehberi: [docs/KULLANIM.md](docs/KULLANIM.md) · Bulut yayını: [docs/YAYIN.md](docs/YAYIN.md)
 
@@ -54,7 +62,7 @@ adresinden (yalnız sunucunun kendi bilgisayarından) ya da `PLATFORM_KULLANICI`
 ## Doğrulama
 
 ```
-npm test             # 30 sunucu testi
+npm test             # 53 sunucu testi (iki dosya)
 npm run denetle      # ekran tür denetimi
 ```
 

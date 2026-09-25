@@ -2,11 +2,12 @@
 export type Hak = 'kayit' | 'hassas' | 'evrak' | 'tahsilat' | 'kasa' | 'ders' | 'sinav' | 'rapor' | 'personel';
 export type Rol = 'yonetici' | 'sube_muduru' | 'buro' | 'muhasebe' | 'egitmen';
 
-export interface Sube { id: string; ad: string; adres: string; telefon: string; merkez: number; aktif: number }
+export interface Sube { id: string; ad: string; adres: string; telefon: string; merkez: number; aktif: number; kod?: string }
 export interface Personel { id: string; ad: string; rol: Rol; sube_id: string | null; aktif?: number; kullanici_adi?: string; telefon?: string; haklar?: Hak[] }
 export interface Arac {
   id: string; sube_id: string; plaka: string; model: string; sinif: string; aktif: number;
   km?: number; muayene?: string; sigorta?: string; kasko?: string; bakim?: string; bakim_km?: number; notlar?: string;
+  ariza?: string; ariza_bas?: string; ariza_bit?: string;
 }
 export interface Taksit { vade: string; tutar: number; odenen: number; durum: 'odendi' | 'gecikti' | 'bekliyor'; ek?: string }
 export interface Kalem { id: string; tur: string; aciklama: string; tutar: number; tarih: string; iptal: number }
@@ -16,6 +17,8 @@ export interface Ogrenci {
   durum: 'aktif' | 'dondu' | 'tamamlandi' | 'iptal'; egitmen_id: string | null; notlar: string; donem_id: string | null; eposta: string;
   portal_acik: boolean; dersler: { teorik: number; direksiyon: number }; tc: string; dogum?: string; adres?: string; hesap?: Hesap;
   evrak?: { eksik: string[]; tamam: string[] };
+  veli_ad?: string; veli_telefon?: string; veli_yakinlik?: string; kaynak?: string; kvkk?: boolean; anonim?: boolean;
+  sinava_hazir?: { tarih: string; kim: string; notu: string } | null;
 }
 export interface Ders {
   id: string; ogrenci_id: string; sube_id: string; egitmen_id: string | null; arac_id: string | null; tur: 'teorik' | 'direksiyon';
@@ -29,6 +32,7 @@ export interface Sinav {
 export interface Odeme {
   id: string; ogrenci_id: string; sube_id: string; tutar: number; tarih: string; yontem: string; aciklama: string; kaydeden: string;
   iptal: number; iptal_nedeni: string; tur: 'odeme' | 'iade'; makbuz_no: string; olusturma: string;
+  hesap_id?: string | null; fatura_no?: string; fatura_tarih?: string;
 }
 export interface Gider { id: string; sube_id: string; tutar: number; tarih: string; kategori: string; aciklama: string; kaydeden: string; iptal: number; yontem: string; tedarikci_id: string | null; veresiye: number; arac_id: string | null }
 export interface Tedarikci { id: string; ad: string; telefon: string; vergi_no: string; notlar: string; aktif: number; bakiye: number }
@@ -45,15 +49,36 @@ export interface Duyuru { id: string; sube_id: string | null; baslik: string; me
 export interface Evrak { id: string; ogrenci_id: string; tur: string; ad: string; boyut: number; tip: string; kaydeden: string; olusturma: string }
 export interface PersonelBelge { id: string; kullanici_id: string; tur: string; no: string; bitis: string; notlar: string }
 export interface Izin { id: string; kullanici_id: string; bas: string; bit: string; tur: string; aciklama: string }
+export interface Senet {
+  id: string; ogrenci_id: string; sube_id: string; tur: 'senet' | 'cek'; no: string; banka: string; borclu: string; vade: string; tutar: number;
+  durum: 'portfoy' | 'tahsil' | 'karsiliksiz' | 'iade'; odeme_id: string | null; aciklama: string; kaydeden: string; olusturma: string;
+}
+export interface BankaHesap { id: string; ad: string; banka: string; iban?: string; sube_id: string | null; acilis?: number; aktif: number; bakiye?: number }
+export interface Transfer { id: string; tarih: string; tutar: number; kaynak_tur: 'kasa' | 'hesap'; kaynak_id: string; hedef_tur: 'kasa' | 'hesap'; hedef_id: string; aciklama: string; kaydeden: string; iptal: number }
+export interface AdayNot { id: string; aday_id: string; metin: string; kaydeden: string; zaman: string }
+export interface Aday {
+  id: string; sube_id: string | null; ad: string; soyad: string; telefon: string; eposta: string; sinif: string; kaynak: string; fiyat: number;
+  durum: 'yeni' | 'gorusuluyor' | 'kayit' | 'vazgecti'; sonraki_arama: string; notlar: string; ogrenci_id: string | null; on_kayit: number;
+  kaydeden: string; olusturma: string; notlarListesi: AdayNot[];
+}
+export interface Bildirim { id: string; tur: string; ogrenci_id: string; sube_id: string; telefon: string; metin: string; kanal: string; durum: string; hata: string; olusturma: string; gonderim: string | null; gonderen: string }
+export interface Karne { ders_id: string; ogrenci_id: string; puanlar: Record<string, number>; notu: string; kaydeden: string; zaman: string }
+export interface TestSonuc { id: string; ogrenci_id: string; tarih: string; soru_sayisi: number; dogru: number; puan: number; konular: Record<string, { dogru: number; sayi: number }> }
+export interface Soru { id: string; konu: string; metin: string; secenekler: string[]; dogru: number; aciklama: string; kaynak: string }
+export interface SifreTalebi { id: string; kullanici_id: string; durum: string; olusturma: string; ad: string; rol: Rol; sube_id: string | null }
 
 export interface Ayarlar {
   siniflar: Record<string, Sinif>; sinavHakki: number; eSinavGecme: number; dersSuresi: number; konumKaydi: boolean;
   ogrenciDersSecimi: { acik: boolean; bas: string; bit: string; enErkenGun: number; enGecGun: number };
   prim: { direksiyon: number; teorik: number }; ucretler: { ekDers: number; sinavTekrar: number };
   kurum: { adres: string; telefon: string; vergiDairesi: string; vergiNo: string; logo: string };
-  sozlesmeMetni: string; sms: { acik: boolean; saglayici: string; baslik: string };
+  sozlesmeMetni: string; sms: { acik: boolean; saglayici: string; baslik: string; kullanici: string; sifre: string };
   pos: { acik: boolean; saglayici: string; magazaNo: string; anahtar: string; gizli: string; deneme: boolean };
   evrakTurleri?: string[];
+  girmediHakYakar: boolean; egitmenGunlukDers: number; ogrenciGunlukDers: number; eSinavGecerlilikGun: number; makbuzSerisi: 'kurum' | 'sube';
+  kvkk: { metin: string; surum: number; saklamaYil: number }; fatura: { kdvOrani: number };
+  hatirlatma: { acik: boolean; saat: string; dersGunOnce: number; sinavGunOnce: number; taksitGunOnce: number; gecikenHaftalik: boolean; sablonlar: Record<string, string> };
+  onKayit: { acik: boolean; mesaj: string }; kaynaklar: string[]; karneKonulari: string[]; denemeTest: { acik: boolean; soruSayisi: number; sureDk: number };
 }
 
 export interface Veri {
@@ -64,6 +89,9 @@ export interface Veri {
     haklar: Record<Hak, string>; roller: Record<Rol, string>; siniflar: Record<string, Sinif>; sinavHakki: number; eSinavGecme: number;
     dersSuresi: number; konumKaydi: boolean; kalemTurleri: Record<string, string>; ucretler: { ekDers: number; sinavTekrar: number };
     teorikKonular: string[]; evrakTurleri?: string[]; smsAcik?: boolean; posAcik?: boolean;
+    egitmenGunlukDers: number; eSinavGecerlilikGun: number; girmediHakYakar: boolean; makbuzSerisi: string;
+    kvkk: { metin: string; saklamaYil: number }; fatura?: { kdvOrani: number }; kaynaklar: string[]; sms: { acik: boolean; saglayici: string };
+    karneKonulari: string[]; testKonulari: string[];
   };
   ayarlar?: Ayarlar;
   subeler: Sube[]; personel: Personel[]; araclar: Arac[]; gorevlendirmeler: Gorevlendirme[]; olaylar?: Olay[];
@@ -71,6 +99,9 @@ export interface Veri {
   ogrenciler: Ogrenci[]; dersler: Ders[]; sinavlar: Sinav[];
   odemeler?: Odeme[]; giderler?: Gider[]; tedarikciler?: Tedarikci[]; tedarikciOdemeleri?: TedarikciOdeme[]; gunSonlari?: GunSonu[];
   duyurular?: Duyuru[]; evraklar?: Evrak[]; personelBelgeleri?: PersonelBelge[]; izinler?: Izin[];
+  senetler?: Senet[]; bankaHesaplari?: BankaHesap[]; aktarimHedefleri?: { id: string; ad: string; sube_id: string | null }[]; transferler?: Transfer[];
+  adaylar?: Aday[]; bildirimler?: Bildirim[]; karneler: Karne[]; testSonuclari: TestSonuc[]; sorular?: Soru[]; sifreTalepleri?: SifreTalebi[];
+  anonimBekleyen?: number;
 }
 
 export interface OgrenciVeri {
@@ -86,4 +117,8 @@ export interface OgrenciVeri {
   duyurular?: { id: string; baslik: string; metin: string; bas: string }[];
   evrak?: { eksik: string[]; tamam: string[] };
   pos?: { acik: boolean };
+  bildirimler?: { id: string; tur: string; metin: string; olusturma: string }[];
+  karne?: { dersler: { ders_id: string; tarih: string; puanlar: Record<string, number>; notu: string; kaydeden: string }[]; konular: Record<string, { son: number; ortalama: number; sayi: number }>; konuListesi: string[]; hazir: { tarih: string; kim: string } | null };
+  denemeTest?: { acik: boolean; soruSayisi: number; sureDk: number; havuz: number; sonuclar: { tarih: string; soru_sayisi: number; dogru: number; puan: number; konular: Record<string, { dogru: number; sayi: number }> }[] };
+  kvkk?: { metin: string; onay: string | null };
 }

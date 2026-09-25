@@ -8,7 +8,7 @@ const yaz = (a: string, v: string | null) => { try { if (v === null) localStorag
 // Kurum kodu: adres satırı (?firma=kod veya /k/kod) > tarayıcının hatırladığı.
 export function firmaKodu(): string {
   const u = new URL(location.href);
-  const yol = /^\/k\/([a-z0-9-]{3,30})\/?$/.exec(u.pathname)?.[1];
+  const yol = /^\/k\/([a-z0-9-]{3,30})(\/on-kayit)?\/?$/.exec(u.pathname)?.[1];
   const kod = (u.searchParams.get('firma') || yol || oku(FIRMA_ANAHTAR) || '').toLocaleLowerCase('tr-TR');
   return kod;
 }
@@ -38,14 +38,18 @@ export async function api<T = any>(yol: string, govde?: unknown, firma = firmaKo
 // Sahadan internet yokken girilen ders sonuçları telefonda sıraya alınır, bağlantı gelince gönderilir.
 // Her kaydın tekil numarası vardır; sunucu aynı kaydı iki kez yazmaz.
 // ---------------------------------------------------------------------------
+// Kayıtlar KİŞİYE bağlı tutulur: ortak kullanılan telefonda A'nın bekleyen kaydı, B giriş yapınca B adına gitmez;
+// A tekrar girince gönderilir.
 export interface KuyrukKaydi { govde: Record<string, unknown> & { istekNo: string }; aciklama: string; zaman: string }
-const kuyrukAnahtar = () => `dc_kuyruk_${firmaKodu()}`;
+let kuyrukSahibi = '';
+export const kuyrukSahibiAyarla = (kullaniciId: string) => { kuyrukSahibi = kullaniciId; };
+const kuyrukAnahtar = () => `dc_kuyruk_${firmaKodu()}_${kuyrukSahibi || '-'}`;
 export const kuyrukOku = (): KuyrukKaydi[] => { try { return JSON.parse(oku(kuyrukAnahtar()) || '[]'); } catch { return []; } };
 const kuyrukYaz = (l: KuyrukKaydi[]) => yaz(kuyrukAnahtar(), JSON.stringify(l));
 
 let gonderiliyor = false;
 export async function kuyrukGonder(hataBildir: (m: string) => void): Promise<number> {
-  if (gonderiliyor) return 0;
+  if (gonderiliyor || !kuyrukSahibi) return 0;
   gonderiliyor = true;
   let n = 0;
   try {
@@ -67,7 +71,7 @@ export async function islem<T = any>(tur: string, g: Record<string, unknown> = {
   try {
     return (await api<T>('/api/islem', govde)) as T & { sirada?: boolean };
   } catch (e) {
-    if (kuyruk && (e as ApiHatasi).durum === 0) {
+    if (kuyruk && (e as ApiHatasi).durum === 0 && kuyrukSahibi) {
       kuyrukYaz([...kuyrukOku(), { govde, aciklama, zaman: new Date().toISOString() }]);
       return { sirada: true } as T & { sirada: boolean };
     }
@@ -87,3 +91,18 @@ export function konumAl(): Promise<{ enlem: number; boylam: number; hassasiyet: 
     );
   });
 }
+
+// ---------------------------------------------------------------------------
+// İnternetsiz görüntüleme: eğitmenin son aldığı liste telefonda saklanır; bağlantı yokken uygulama açılırsa
+// bu liste "son güncelleme" saatiyle gösterilir. Yalnız eğitmen için (para ve kimlik bilgisi içermez).
+// Çıkışta silinir.
+// ---------------------------------------------------------------------------
+const sonVeriAnahtar = () => `dc_sonveri_${firmaKodu()}`;
+export function sonVeriYaz(v: { ben: { rol: string } }) {
+  if (v.ben.rol !== 'egitmen') return;
+  yaz(sonVeriAnahtar(), JSON.stringify({ zaman: new Date().toISOString(), v }));
+}
+export function sonVeriOku<T>(): { zaman: string; v: T } | null {
+  try { return JSON.parse(oku(sonVeriAnahtar()) || 'null'); } catch { return null; }
+}
+export const sonVeriSil = () => yaz(sonVeriAnahtar(), null);

@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { fail, metin, kurus, gun, secim, tlYaz } from '../domain.mjs';
 import { makbuzNo } from './ogrenci.mjs';
+import { hesapAl } from './banka.mjs';
 
 const simdi = () => new Date().toISOString();
 const adSoyad = (o) => `${o.ad} ${o.soyad}`;
@@ -58,10 +59,13 @@ CREATE TABLE IF NOT EXISTS gun_sonlari(id TEXT PRIMARY KEY, sube_id TEXT NOT NUL
       const tutar = kurus(g.tutar, 'Tutar', false);
       const kalan = c.hesap(o).kalan;
       if (tutar > kalan) fail(`Tutar kalan borçtan (${tlYaz(kalan)}) büyük olamaz.`);
-      const id = randomUUID(), no = makbuzNo(c);
-      c.run("INSERT INTO odemeler(id,ogrenci_id,sube_id,tutar,tarih,yontem,aciklama,kaydeden,olusturma,tur,makbuz_no) VALUES(?,?,?,?,?,?,?,?,?,'odeme',?)",
-        id, o.id, o.sube_id, tutar, gun(g.tarih || c.bugunStr()), secim(g.yontem || 'nakit', ['nakit', 'kart', 'havale'], 'Ödeme şekli'), metin(g.aciklama, 200), k.ad, simdi(), no);
-      return { sonuc: { id, makbuzNo: no }, olay: [o.sube_id, 'odeme', `${adSoyad(o)} ödeme yaptı: ${tlYaz(tutar)} (makbuz ${no})`] };
+      const tarih = gun(g.tarih || c.bugunStr()), yontem = secim(g.yontem || 'nakit', ['nakit', 'kart', 'havale'], 'Ödeme şekli');
+      const not = kasaGunuDenetle(c, k, o.sube_id, tarih, yontem, g);
+      const hesap = yontem !== 'nakit' && g.hesapId ? hesapAl(c, k, g.hesapId) : null;
+      const id = randomUUID(), no = makbuzNo(c, o.sube_id);
+      c.run("INSERT INTO odemeler(id,ogrenci_id,sube_id,tutar,tarih,yontem,aciklama,kaydeden,olusturma,tur,makbuz_no,hesap_id) VALUES(?,?,?,?,?,?,?,?,?,'odeme',?,?)",
+        id, o.id, o.sube_id, tutar, tarih, yontem, metin(g.aciklama, 200), k.ad, simdi(), no, hesap?.id || null);
+      return { sonuc: { id, makbuzNo: no }, olay: [o.sube_id, 'odeme', `${adSoyad(o)} ödeme yaptı: ${tlYaz(tutar)} (makbuz ${no})${not}`] };
     },
     odeme_iptal(c, k, g) {
       c.hakGerek(k, 'kasa');
@@ -75,8 +79,9 @@ CREATE TABLE IF NOT EXISTS gun_sonlari(id TEXT PRIMARY KEY, sube_id TEXT NOT NUL
         const h = c.hesap(o);
         if (h.odenen - od.tutar < 0) fail('Bu ödemeden iade yapılmış; önce iadeyi iptal edin.');
       }
+      const not = kasaGunuDenetle(c, k, od.sube_id, od.tarih, od.yontem, g);
       c.run('UPDATE odemeler SET iptal=1, iptal_nedeni=? WHERE id=?', metin(g.neden, 200, true, 'İptal nedeni'), od.id);
-      return { olay: [od.sube_id, 'kasa', `${adSoyad(o)} ${od.tur === 'iade' ? 'iadesi' : 'ödemesi'} iptal edildi: ${tlYaz(od.tutar)} (${g.neden})`] };
+      return { olay: [od.sube_id, 'kasa', `${adSoyad(o)} ${od.tur === 'iade' ? 'iadesi' : 'ödemesi'} iptal edildi: ${tlYaz(od.tutar)} (${g.neden})${not}`] };
     },
     iade(c, k, g) {
       c.hakGerek(k, 'kasa');
@@ -84,10 +89,12 @@ CREATE TABLE IF NOT EXISTS gun_sonlari(id TEXT PRIMARY KEY, sube_id TEXT NOT NUL
       const tutar = kurus(g.tutar, 'Tutar', false);
       const odenen = c.hesap(o).odenen;
       if (tutar > odenen) fail(`İade, ödenen tutardan (${tlYaz(odenen)}) büyük olamaz.`);
+      const tarih = gun(g.tarih || c.bugunStr()), yontem = secim(g.yontem || 'nakit', ['nakit', 'kart', 'havale'], 'İade şekli');
+      const not = kasaGunuDenetle(c, k, o.sube_id, tarih, yontem, g);
       const id = randomUUID();
       c.run("INSERT INTO odemeler(id,ogrenci_id,sube_id,tutar,tarih,yontem,aciklama,kaydeden,olusturma,tur,makbuz_no) VALUES(?,?,?,?,?,?,?,?,?,'iade','')",
-        id, o.id, o.sube_id, tutar, gun(g.tarih || c.bugunStr()), secim(g.yontem || 'nakit', ['nakit', 'kart', 'havale'], 'İade şekli'), metin(g.aciklama, 200, true, 'İade nedeni'), k.ad, simdi());
-      return { sonuc: { id }, olay: [o.sube_id, 'kasa', `${adSoyad(o)} için iade yapıldı: ${tlYaz(tutar)}`] };
+        id, o.id, o.sube_id, tutar, tarih, yontem, metin(g.aciklama, 200, true, 'İade nedeni'), k.ad, simdi());
+      return { sonuc: { id }, olay: [o.sube_id, 'kasa', `${adSoyad(o)} için iade yapıldı: ${tlYaz(tutar)}${not}`] };
     },
     // Paket dışı ek ücret (ek ders, sınav tekrarı) veya indirim. İndirim eksi tutar olarak saklanır.
     ucret_kalemi_ekle(c, k, g) {
@@ -127,20 +134,24 @@ CREATE TABLE IF NOT EXISTS gun_sonlari(id TEXT PRIMARY KEY, sube_id TEXT NOT NUL
       if (g.tedarikciId && !tedarikci) fail('Tedarikçi bulunamadı.');
       const veresiye = g.veresiye ? 1 : 0;
       if (veresiye && !tedarikci) fail('Veresiye gider için tedarikçi seçin.');
-      const arac = g.aracId ? c.aracAl(g.subeId, g.aracId) : null;
+      const arac = g.aracId ? c.aracAl(g.subeId, g.aracId, { arizaSerbest: true }) : null;
+      const tarih = gun(g.tarih || c.bugunStr());
+      const yontem = veresiye ? 'veresiye' : secim(g.yontem || 'nakit', ['nakit', 'kart', 'havale'], 'Ödeme şekli');
+      const not = kasaGunuDenetle(c, k, g.subeId, tarih, yontem, g);
+      const hesap = !['nakit', 'veresiye'].includes(yontem) && g.hesapId ? hesapAl(c, k, g.hesapId) : null;
       const id = randomUUID();
-      c.run('INSERT INTO giderler(id,sube_id,tutar,tarih,kategori,aciklama,kaydeden,olusturma,yontem,tedarikci_id,veresiye,arac_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
-        id, g.subeId, tutar, gun(g.tarih || c.bugunStr()), kategori, metin(g.aciklama, 200), k.ad, simdi(),
-        veresiye ? 'veresiye' : secim(g.yontem || 'nakit', ['nakit', 'kart', 'havale'], 'Ödeme şekli'), tedarikci?.id || null, veresiye, arac?.id || null);
-      return { sonuc: { id }, olay: [g.subeId, 'kasa', `Gider girildi: ${kategori} ${tlYaz(tutar)}${tedarikci ? ` · ${tedarikci.ad}${veresiye ? ' (veresiye)' : ''}` : ''}`] };
+      c.run('INSERT INTO giderler(id,sube_id,tutar,tarih,kategori,aciklama,kaydeden,olusturma,yontem,tedarikci_id,veresiye,arac_id,hesap_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        id, g.subeId, tutar, tarih, kategori, metin(g.aciklama, 200), k.ad, simdi(), yontem, tedarikci?.id || null, veresiye, arac?.id || null, hesap?.id || null);
+      return { sonuc: { id }, olay: [g.subeId, 'kasa', `Gider girildi: ${kategori} ${tlYaz(tutar)}${tedarikci ? ` · ${tedarikci.ad}${veresiye ? ' (veresiye)' : ''}` : ''}${not}`] };
     },
     gider_iptal(c, k, g) {
       c.hakGerek(k, 'kasa');
       const gd = c.q1('SELECT * FROM giderler WHERE id=?', metin(g.id, 60, true));
       if (!gd || gd.iptal) fail('Gider bulunamadı.', 404);
       c.subeIzinli(k, gd.sube_id);
+      const not = kasaGunuDenetle(c, k, gd.sube_id, gd.tarih, gd.veresiye ? 'veresiye' : gd.yontem, g);
       c.run('UPDATE giderler SET iptal=1 WHERE id=?', gd.id);
-      return { olay: [gd.sube_id, 'kasa', `Gider iptal edildi: ${gd.kategori} ${tlYaz(gd.tutar)}`] };
+      return { olay: [gd.sube_id, 'kasa', `Gider iptal edildi: ${gd.kategori} ${tlYaz(gd.tutar)}${not}`] };
     },
 
     tedarikci_ekle(c, k, g) {
@@ -167,18 +178,22 @@ CREATE TABLE IF NOT EXISTS gun_sonlari(id TEXT PRIMARY KEY, sube_id TEXT NOT NUL
       const tutar = kurus(g.tutar, 'Tutar', false);
       const bakiye = tedarikciBakiye(c, t.id, g.subeId);
       if (tutar > bakiye) fail(`Bu şubenin ${t.ad} firmasına borcu ${tlYaz(bakiye)}. Fazla ödeme girilemez.`);
+      const tarih = gun(g.tarih || c.bugunStr()), yontem = secim(g.yontem || 'nakit', ['nakit', 'kart', 'havale'], 'Ödeme şekli');
+      const not = kasaGunuDenetle(c, k, g.subeId, tarih, yontem, g);
+      const hesap = yontem !== 'nakit' && g.hesapId ? hesapAl(c, k, g.hesapId) : null;
       const id = randomUUID();
-      c.run('INSERT INTO tedarikci_odemeleri(id,tedarikci_id,sube_id,tutar,tarih,yontem,aciklama,kaydeden,olusturma) VALUES(?,?,?,?,?,?,?,?,?)',
-        id, t.id, g.subeId, tutar, gun(g.tarih || c.bugunStr()), secim(g.yontem || 'nakit', ['nakit', 'kart', 'havale'], 'Ödeme şekli'), metin(g.aciklama, 200), k.ad, simdi());
-      return { sonuc: { id }, olay: [g.subeId, 'kasa', `${t.ad} firmasına ödeme yapıldı: ${tlYaz(tutar)}`] };
+      c.run('INSERT INTO tedarikci_odemeleri(id,tedarikci_id,sube_id,tutar,tarih,yontem,aciklama,kaydeden,olusturma,hesap_id) VALUES(?,?,?,?,?,?,?,?,?,?)',
+        id, t.id, g.subeId, tutar, tarih, yontem, metin(g.aciklama, 200), k.ad, simdi(), hesap?.id || null);
+      return { sonuc: { id }, olay: [g.subeId, 'kasa', `${t.ad} firmasına ödeme yapıldı: ${tlYaz(tutar)}${not}`] };
     },
     tedarikci_odeme_iptal(c, k, g) {
       c.hakGerek(k, 'kasa');
       const x = c.q1('SELECT * FROM tedarikci_odemeleri WHERE id=?', metin(g.id, 60, true));
       if (!x || x.iptal) fail('Ödeme bulunamadı.', 404);
       c.subeIzinli(k, x.sube_id);
+      const not = kasaGunuDenetle(c, k, x.sube_id, x.tarih, x.yontem, g);
       c.run('UPDATE tedarikci_odemeleri SET iptal=1 WHERE id=?', x.id);
-      return { olay: [x.sube_id, 'kasa', `Tedarikçi ödemesi iptal edildi: ${tlYaz(x.tutar)}`] };
+      return { olay: [x.sube_id, 'kasa', `Tedarikçi ödemesi iptal edildi: ${tlYaz(x.tutar)}${not}`] };
     },
 
     // Gün sonu: sayılan nakit ile sistemin beklediği nakit karşılaştırılır, fark kaydedilir.
@@ -187,6 +202,8 @@ CREATE TABLE IF NOT EXISTS gun_sonlari(id TEXT PRIMARY KEY, sube_id TEXT NOT NUL
       const s = c.subeIzinli(k, g.subeId);
       const tarih = gun(g.tarih || c.bugunStr());
       if (c.q1('SELECT 1 FROM gun_sonlari WHERE sube_id=? AND tarih=?', s.id, tarih)) fail('Bu şube için bu günün kasası zaten kapatılmış.');
+      if (c.q1('SELECT 1 FROM gun_sonlari WHERE sube_id=? AND tarih>?', s.id, tarih)) fail('Daha sonraki bir günün kasası kapatılmış; geriye dönük gün sonu yapılamaz.');
+      if (tarih > c.bugunStr()) fail('İleri tarihli gün sonu yapılamaz.');
       const beklenen = nakitBeklenen(c, s.id, tarih);
       const sayilan = kurus(g.sayilan, 'Sayılan nakit');
       c.run('INSERT INTO gun_sonlari(id,sube_id,tarih,beklenen,sayilan,fark,aciklama,kaydeden,olusturma) VALUES(?,?,?,?,?,?,?,?,?)',
@@ -207,6 +224,20 @@ CREATE TABLE IF NOT EXISTS gun_sonlari(id TEXT PRIMARY KEY, sube_id TEXT NOT NUL
   },
 };
 
+// Kasası kapatılmış (gün sonu yapılmış) bir güne ya da ondan önceki bir güne nakit hareket girilemez; girilirse
+// o günün sayımı sessizce bozulur. Zorunlu hallerde yalnız yönetici, gerekçe yazarak girebilir.
+// Dönüş: olay yazısına eklenecek not ('' ya da gerekçe).
+export function kasaGunuDenetle(c, k, subeId, tarih, yontem, g = {}) {
+  if (yontem !== 'nakit') return '';
+  const son = c.q1('SELECT MAX(tarih) t FROM gun_sonlari WHERE sube_id=?', subeId)?.t;
+  if (!son || tarih > son) return '';
+  const tr = (x) => x.split('-').reverse().join('.');
+  if (k.rol !== 'yonetici') fail(`${tr(tarih)} tarihli kasa kapatılmış (son gün sonu ${tr(son)}). Kapalı güne nakit kayıt girilemez; kaydı ${tr(son)} sonrasındaki bir tarihle girin ya da yöneticiye başvurun.`, 409);
+  const gerekce = metin(g.gerekce, 200);
+  if (!gerekce) fail('Bu günün kasası kapatılmış. Yine de girmek için gerekçe yazın.', 409);
+  return ` · KAPANMIŞ GÜNE GERİYE DÖNÜK KAYIT (gerekçe: ${gerekce})`;
+}
+
 export function tedarikciBakiye(c, tedarikciId, subeId = null) {
   const sart = subeId ? ' AND sube_id=?' : '';
   const p = subeId ? [subeId] : [];
@@ -214,23 +245,23 @@ export function tedarikciBakiye(c, tedarikciId, subeId = null) {
   const odenen = c.q1(`SELECT COALESCE(SUM(tutar),0) t FROM tedarikci_odemeleri WHERE tedarikci_id=? AND iptal=0${sart}`, tedarikciId, ...p).t;
   return borc - odenen;
 }
-function nakitHareket(c, subeId, tarih) {
-  const t = (sql) => c.q1(sql, subeId, tarih).t;
+// Bir şube kasasının [bas, bit] arasındaki nakit hareketleri (aktarımlar dahil).
+function nakitAralik(c, subeId, bas, bit) {
+  const t = (sql) => c.q1(sql, subeId, bas, bit).t;
   return {
-    giren: t("SELECT COALESCE(SUM(tutar),0) t FROM odemeler WHERE sube_id=? AND tarih=? AND iptal=0 AND tur='odeme' AND yontem='nakit'"),
-    iade: t("SELECT COALESCE(SUM(tutar),0) t FROM odemeler WHERE sube_id=? AND tarih=? AND iptal=0 AND tur='iade' AND yontem='nakit'"),
-    gider: t("SELECT COALESCE(SUM(tutar),0) t FROM giderler WHERE sube_id=? AND tarih=? AND iptal=0 AND veresiye=0 AND yontem='nakit'"),
-    tedarikci: t("SELECT COALESCE(SUM(tutar),0) t FROM tedarikci_odemeleri WHERE sube_id=? AND tarih=? AND iptal=0 AND yontem='nakit'"),
+    giren: t("SELECT COALESCE(SUM(tutar),0) t FROM odemeler WHERE sube_id=? AND tarih>=? AND tarih<=? AND iptal=0 AND tur='odeme' AND yontem='nakit'"),
+    iade: t("SELECT COALESCE(SUM(tutar),0) t FROM odemeler WHERE sube_id=? AND tarih>=? AND tarih<=? AND iptal=0 AND tur='iade' AND yontem='nakit'"),
+    gider: t("SELECT COALESCE(SUM(tutar),0) t FROM giderler WHERE sube_id=? AND tarih>=? AND tarih<=? AND iptal=0 AND veresiye=0 AND yontem='nakit'"),
+    tedarikci: t("SELECT COALESCE(SUM(tutar),0) t FROM tedarikci_odemeleri WHERE sube_id=? AND tarih>=? AND tarih<=? AND iptal=0 AND yontem='nakit'"),
+    aktarimGelen: t("SELECT COALESCE(SUM(tutar),0) t FROM para_transferleri WHERE hedef_tur='kasa' AND hedef_id=? AND tarih>=? AND tarih<=? AND iptal=0"),
+    aktarimGiden: t("SELECT COALESCE(SUM(tutar),0) t FROM para_transferleri WHERE kaynak_tur='kasa' AND kaynak_id=? AND tarih>=? AND tarih<=? AND iptal=0"),
   };
 }
-// Beklenen nakit = son gün sonunda sayılan + o günden sonraki nakit girişler - nakit çıkışlar.
+const nakitHareket = (c, subeId, tarih) => nakitAralik(c, subeId, tarih, tarih);
+// Beklenen nakit = son gün sonunda sayılan + o günden sonraki nakit girişler - nakit çıkışlar (+/- aktarımlar).
 export function nakitBeklenen(c, subeId, tarih) {
   const son = c.q1('SELECT tarih, sayilan FROM gun_sonlari WHERE sube_id=? AND tarih<? ORDER BY tarih DESC LIMIT 1', subeId, tarih);
-  const bas = son?.tarih || '0000-00-00';
-  const t = (sql) => c.q1(sql, subeId, bas, tarih).t;
-  const giren = t("SELECT COALESCE(SUM(tutar),0) t FROM odemeler WHERE sube_id=? AND tarih>? AND tarih<=? AND iptal=0 AND tur='odeme' AND yontem='nakit'");
-  const iade = t("SELECT COALESCE(SUM(tutar),0) t FROM odemeler WHERE sube_id=? AND tarih>? AND tarih<=? AND iptal=0 AND tur='iade' AND yontem='nakit'");
-  const gider = t("SELECT COALESCE(SUM(tutar),0) t FROM giderler WHERE sube_id=? AND tarih>? AND tarih<=? AND iptal=0 AND veresiye=0 AND yontem='nakit'");
-  const ted = t("SELECT COALESCE(SUM(tutar),0) t FROM tedarikci_odemeleri WHERE sube_id=? AND tarih>? AND tarih<=? AND iptal=0 AND yontem='nakit'");
-  return (son?.sayilan || 0) + giren - iade - gider - ted;
+  const bas = son?.tarih ? new Date(Date.parse(son.tarih + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10) : '0000-00-00';
+  const h = nakitAralik(c, subeId, bas, tarih);
+  return (son?.sayilan || 0) + h.giren - h.iade - h.gider - h.tedarikci + h.aktarimGelen - h.aktarimGiden;
 }

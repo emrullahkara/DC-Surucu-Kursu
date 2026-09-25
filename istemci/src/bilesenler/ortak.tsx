@@ -45,14 +45,15 @@ export interface Alan {
   secenekler?: Secenek[]; deger?: any; zorunlu?: boolean; not?: string; min?: number; max?: number; otomatik?: string;
   html?: ReactNode; kabul?: string; genis?: boolean; gizle?: (v: Record<string, any>) => boolean;
 }
-interface PencereDurum { baslik: string; alanlar: Alan[]; gonder?: (v: Record<string, any>) => Promise<unknown> | unknown; dugme: string; ikili: boolean; tehlike: boolean; icerik?: ReactNode; genis?: boolean }
+interface PencereDurum { baslik: string; alanlar: Alan[]; gonder?: (v: Record<string, any>) => Promise<unknown> | unknown; dugme: string; ikili: boolean; tehlike: boolean; icerik?: ReactNode; genis?: boolean; altYok?: boolean }
 const pencereDepo = depo<PencereDurum | null>(null);
 
 export function pencere(baslik: string, alanlar: Alan[], gonder?: PencereDurum['gonder'], ayar: { dugme?: string; ikili?: boolean; tehlike?: boolean; genis?: boolean } = {}) {
   pencereDepo.koy({ baslik, alanlar, gonder, dugme: ayar.dugme || 'Kaydet', ikili: !!ayar.ikili, tehlike: !!ayar.tehlike, genis: ayar.genis });
 }
-export function icerikPenceresi(baslik: string, icerik: ReactNode, genis = true) {
-  pencereDepo.koy({ baslik, alanlar: [], dugme: '', ikili: false, tehlike: false, icerik, genis });
+// İçerik kendi düğmelerini çizer (Kapat, Kaydet…); kendi düğmesi olmayan içerik için kapatDugmesi=true.
+export function icerikPenceresi(baslik: string, icerik: ReactNode, genis = true, kapatDugmesi = false) {
+  pencereDepo.koy({ baslik, alanlar: [], dugme: '', ikili: false, tehlike: false, icerik, genis, altYok: !kapatDugmesi });
 }
 export const pencereKapat = () => pencereDepo.koy(null);
 export function onayla(metin: string, eylem: () => Promise<unknown> | unknown, dugme = 'Evet') {
@@ -154,10 +155,10 @@ export function Pencere() {
         {hata && <div className="hata">{hata}</div>}
         {p.icerik}
         <div className={p.ikili ? 'iki' : ''}>{p.alanlar.map(alanCiz)}</div>
-        <div className="alt">
+        {!p.altYok && <div className="alt">
           <button type="button" className="dugme" onClick={pencereKapat}>{p.gonder ? 'Vazgeç' : 'Kapat'}</button>
           {p.gonder && <button className={'dugme ' + (p.tehlike ? 'kirmizi-dolu' : 'ana')} type="submit" disabled={bekliyor}>{bekliyor ? 'Kaydediliyor…' : p.dugme}</button>}
-        </div>
+        </div>}
       </form>
     </dialog>
   );

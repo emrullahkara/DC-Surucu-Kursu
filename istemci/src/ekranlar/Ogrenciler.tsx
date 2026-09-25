@@ -2,11 +2,15 @@
 import { useMemo, useState } from 'react';
 import { useY, type EkranP } from '../baglam';
 import { DersTablosu } from '../bilesenler/DersTablosu';
-import { Bos, Ilerleme, Kart, Rozet, pencere, onayla, bildir } from '../bilesenler/ortak';
+import { Bos, Ilerleme, Kart, Rozet, pencere, onayla, bildir, icerikPenceresi } from '../bilesenler/ortak';
+import { ExcelAktar } from '../bilesenler/ExcelAktar';
+import { firmaKodu } from '../api';
 import { eylemler } from '../eylemler';
 import { islem } from '../api';
-import { makbuzYazdir } from '../yazdir';
-import { DURUM_OGR, DURUM_SINAV, DURUM_TAKSIT, SINAV_AD, YONTEM, csvIndir, kucukHarf, tarih, telLink, tl, tlCsv, whatsapp } from '../yardim';
+import { makbuzYazdir, senetYazdir } from '../yazdir';
+import type { Karne, Ogrenci } from '../tipler';
+import { DURUM_OGR, DURUM_SINAV, DURUM_TAKSIT, SINAV_AD, YONTEM, excelIndir, kucukHarf, tarih, telLink, tl, tlCsv, whatsapp, gunFarki } from '../yardim';
+import { dosyaIndir } from '../excel';
 
 export function Ogrenciler(_p: EkranP) {
   const y = useY();
@@ -18,6 +22,8 @@ export function Ogrenciler(_p: EkranP) {
   const [egitmen, setEgitmen] = useState('');
   const [donem, setDonem] = useState('');
   const [borc, setBorc] = useState('');
+  // Uzun listede ekran yavaşlamasın diye ilk 100 satır çizilir; "Daha fazla" ile açılır.
+  const [sinir, setSinir] = useState(100);
   const liste = useMemo(() => {
     const a = kucukHarf(ara.trim());
     return y.subeSuz(v.ogrenciler).filter((o) =>
@@ -25,14 +31,17 @@ export function Ogrenciler(_p: EkranP) {
       && (!donem || o.donem_id === donem) && (!borc || (borc === 'geciken' ? (o.hesap?.geciken || 0) > 0 : (o.hesap?.kalan || 0) > 0))
       && (!a || kucukHarf(`${o.ad} ${o.soyad} ${o.telefon} ${o.tc}`).includes(a)));
   }, [v, y.b.sube, ara, durum, sinif, egitmen, donem, borc]);
-  const excel = () => csvIndir(`ogrenciler-${v.bugun}.csv`, [
+  const excel = () => excelIndir(`ogrenciler-${v.bugun}.xlsx`, [
     ['Ad', 'Soyad', 'T.C.', 'Telefon', 'Sınıf', 'Şube', 'Eğitmen', 'Kayıt', 'Durum', 'Teorik', 'Direksiyon', ...(y.hak('tahsilat') ? ['Toplam ücret', 'Ödenen', 'Kalan', 'Geciken'] : [])],
     ...liste.map((o) => [o.ad, o.soyad, o.tc, o.telefon, o.sinif, y.subeAd(o.sube_id), y.kisiAd(o.egitmen_id), tarih(o.kayit_tarihi), DURUM_OGR[o.durum][0], o.dersler.teorik, o.dersler.direksiyon,
       ...(o.hesap ? [tlCsv(o.hesap.ucret), tlCsv(o.hesap.odenen), tlCsv(o.hesap.kalan), tlCsv(o.hesap.geciken)] : [])]),
   ]);
+  const aktar = () => icerikPenceresi('Excel\'den öğrenci aktar', <ExcelAktar subeler={y.subeSecenek()} varsayilanSube={y.varsayilanSube()} subeSecilir={v.ben.rol === 'yonetici'}
+    siniflar={Object.keys(v.tanimlar.siniflar)} tahsilat={y.hak('tahsilat')} bitti={() => y.b.yenile()} />);
   return (
     <Kart baslik={<h1>Öğrenciler</h1>} sag={<>
       {y.hak('rapor') && <button className="dugme" onClick={excel}>Excel</button>}
+      {y.hak('kayit') && <button className="dugme" onClick={aktar} title="Başka programdan geçen kurslar için">Excel'den aktar</button>}
       {y.hak('kayit') && <button className="dugme ana" onClick={() => E.ogrenciEkle()}>+ Yeni kayıt</button>}
     </>}>
       <div className="suzgec">
@@ -48,7 +57,7 @@ export function Ogrenciler(_p: EkranP) {
         <table>
           <thead><tr><th>Öğrenci</th><th>Sınıf</th>{y.subeSutunu && <th>Şube</th>}<th>Eğitmen</th><th>Teorik</th><th>Direksiyon</th><th>Durum</th>{y.hak('tahsilat') && <th className="sayi-h">Kalan borç</th>}</tr></thead>
           <tbody>
-            {liste.length ? liste.map((o) => {
+            {liste.length ? liste.slice(0, sinir).map((o) => {
               const g = v.tanimlar.siniflar[o.sinif];
               return (
                 <tr key={o.id} className="tikla" onClick={() => y.b.git('ogrenci', o.id)}>
@@ -58,7 +67,7 @@ export function Ogrenciler(_p: EkranP) {
                   <td>{y.kisiAd(o.egitmen_id) || <span className="soluk">—</span>}</td>
                   <td className="kucuk">{o.dersler.teorik}/{g?.teorik ?? '?'}</td>
                   <td className="kucuk">{o.dersler.direksiyon}/{g?.direksiyon ?? '?'}</td>
-                  <td><Rozet tablo={DURUM_OGR} d={o.durum} />{(o.evrak?.eksik.length || 0) > 0 && <div><span className="rozet sari">evrak eksik</span></div>}</td>
+                  <td><Rozet tablo={DURUM_OGR} d={o.durum} />{(o.evrak?.eksik.length || 0) > 0 && <div><span className="rozet sari">evrak eksik</span></div>}{o.sinava_hazir && o.durum === 'aktif' && <div><span className="rozet yesil">sınava hazır</span></div>}</td>
                   {y.hak('tahsilat') && <td className="sayi-h">{tl(o.hesap?.kalan)}{(o.hesap?.geciken || 0) > 0 && <div><span className="rozet kirmizi">gecikme {tl(o.hesap?.geciken)}</span></div>}</td>}
                 </tr>
               );
@@ -66,6 +75,7 @@ export function Ogrenciler(_p: EkranP) {
           </tbody>
         </table>
       </div>
+      {liste.length > sinir && <div className="daha-fazla"><button className="dugme" onClick={() => setSinir((x) => x + 200)}>Daha fazla göster ({liste.length - sinir} öğrenci daha)</button></div>}
     </Kart>
   );
 }
@@ -87,6 +97,17 @@ export function OgrenciDetay(_p: EkranP) {
   const dersYetki = aktif && (y.hak('ders') || o.egitmen_id === v.ben.id);
   const B = ({ e, children }: { e: string; children: React.ReactNode }) => <div><span>{e}</span>{children || '—'}</div>;
   const h = o.hesap;
+  const karneler = (v.karneler || []).filter((k) => k.ogrenci_id === o.id);
+  const testler = (v.testSonuclari || []).filter((t) => t.ogrenci_id === o.id);
+  const senetler = (v.senetler || []).filter((x) => x.ogrenci_id === o.id);
+  const esGecen = sinavlar.find((s) => s.tur === 'e_sinav' && s.sonuc === 'gecti');
+  const drGecti = sinavlar.some((s) => s.tur === 'direksiyon' && s.sonuc === 'gecti');
+  const esKalanGun = esGecen && !drGecti && v.tanimlar.eSinavGecerlilikGun ? v.tanimlar.eSinavGecerlilikGun - gunFarki(esGecen.tarih, v.bugun) : null;
+  const dokum = async () => {
+    const r = await fetch(`/api/kisisel-veri?id=${encodeURIComponent(o.id)}`, { headers: { 'X-Firma': firmaKodu() } });
+    if (!r.ok) return bildir((await r.json().catch(() => ({}))).hata || 'Alınamadı.', 'hata');
+    dosyaIndir(`kisisel-veri-${o.ad}-${o.soyad}.json`, await r.blob(), 'application/json');
+  };
 
   return (
     <>
@@ -101,7 +122,10 @@ export function OgrenciDetay(_p: EkranP) {
           {y.hak('hassas') && <button className="dugme kucuk" onClick={() => E.sozlesme(o)}>Sözleşme yazdır</button>}
         </>}
         {v.ben.rol === 'yonetici' && v.subeler.length > 1 && <button className="dugme kucuk" onClick={() => E.ogrenciNakil(o)}>Şube nakli</button>}
+        {y.hak('kayit') && y.hak('hassas') && !o.anonim && <button className="dugme kucuk" onClick={dokum} title="Kişisel veri isteme hakkı (KVKK)">Veri dökümü</button>}
+        {v.ben.rol === 'yonetici' && !o.anonim && ['tamamlandi', 'iptal'].includes(o.durum) && <button className="dugme kucuk kirmizi" onClick={() => E.anonimlestir(o)}>Kişisel veriyi sil</button>}
       </>}>
+        {esKalanGun !== null && esKalanGun <= 60 && <p className={'serit ' + (esKalanGun < 0 ? 'kopuk' : 'uyari')}>E-sınav geçerlilik süresi {esKalanGun < 0 ? `${-esKalanGun} gün önce doldu` : `${esKalanGun} gün içinde doluyor`} (e-sınav {tarih(esGecen!.tarih)}). Direksiyon sınavı planlanmalı.</p>}
         <div className="detay-bilgi">
           <B e="Ehliyet sınıfı">{g?.ad || o.sinif}{o.mevcut_ehliyet && ` (elinde ${o.mevcut_ehliyet})`}</B>
           <B e="Şube">{y.subeAd(o.sube_id)}</B><B e="Direksiyon eğitmeni">{y.kisiAd(o.egitmen_id)}</B>
@@ -110,6 +134,10 @@ export function OgrenciDetay(_p: EkranP) {
           {o.dogum !== undefined && <><B e="Doğum tarihi">{tarih(o.dogum)}</B><B e="Adres">{o.adres}</B></>}
           <B e="E-posta">{o.eposta}</B><B e="Öğrenci girişi">{o.portal_acik ? 'Açık' : 'Kapalı'}</B>
           {gruplar.length > 0 && <B e="Teorik grubu">{gruplar.map((x) => x.ad).join(', ')}</B>}
+          {o.veli_ad && <B e={`Veli${o.veli_yakinlik ? ` (${o.veli_yakinlik})` : ''}`}>{o.veli_ad}{o.veli_telefon && <div><a href={telLink(o.veli_telefon)}>{o.veli_telefon}</a></div>}</B>}
+          {o.kaynak && <B e="Nereden duydu">{o.kaynak}</B>}
+          <B e="Kişisel veri onayı">{o.kvkk ? <span className="rozet yesil">Alındı</span> : <>{o.anonim ? 'Anonim kayıt' : <span className="rozet sari">Yok</span>} {!o.anonim && y.hak('kayit') && <button className="baglanti" onClick={() => E.kvkkOnay(o)}>Onay alındı</button>}</>}</B>
+          {o.sinava_hazir && <B e="Sınava hazır">{tarih(o.sinava_hazir.tarih)} · {o.sinava_hazir.kim}</B>}
         </div>
         {o.notlar && <p className="bilgi">{o.notlar}</p>}
       </Kart>
@@ -123,6 +151,16 @@ export function OgrenciDetay(_p: EkranP) {
           {o.dersler.direksiyon > (g?.direksiyon || 99) && <p className="bilgi kucuk">Paketteki {g?.direksiyon} direksiyon dersi aşıldı; fazlası ek ders sayılır.</p>}
           {yoklama.length > 0 && <p className="soluk kucuk">Teorik yoklama: {yoklama.filter((x) => x.durum === 'geldi').length} geldi, {yoklama.filter((x) => x.durum === 'gelmedi').length} gelmedi</p>}
         </Kart>
+        <KarneKarti o={o} karneler={karneler} />
+        {testler.length > 0 && (
+          <Kart baslik="E-sınav deneme testleri">
+            <div className="tablo-kutu"><table><tbody>{testler.slice(0, 10).map((t) => (
+              <tr key={t.id}><td>{tarih(t.tarih)}</td><td>{t.dogru}/{t.soru_sayisi}</td>
+                <td><span className={'rozet ' + (t.puan >= v.tanimlar.eSinavGecme ? 'yesil' : 'kirmizi')}>{t.puan} puan</span></td>
+                <td className="kucuk soluk">{Object.entries(t.konular).map(([k, x]) => `${k}: ${x.dogru}/${x.sayi}`).join(' · ')}</td></tr>
+            ))}</tbody></table></div>
+          </Kart>
+        )}
         <Kart baslik="Sınavlar" sag={aktif && y.hak('sinav') && <button className="dugme kucuk" onClick={() => E.sinavEkle(o.id)}>+ Sınava yaz</button>}>
           {sinavlar.length ? (
             <div className="tablo-kutu"><table><tbody>
@@ -144,6 +182,7 @@ export function OgrenciDetay(_p: EkranP) {
             <button className="dugme kucuk" onClick={() => E.kalemEkle(o)}>+ Ek ücret{y.hak('kasa') ? ' / indirim' : ''}</button>
             {y.hak('kasa') && <button className="dugme kucuk" onClick={() => E.ogrenciUcret(o)}>Paket / taksit</button>}
             {y.hak('kasa') && h.odenen > 0 && <button className="dugme kucuk" onClick={() => E.iade(o)}>İade</button>}
+            {h.kalan > 0 && <button className="dugme kucuk" onClick={() => E.senetEkle(o)}>+ Senet / çek</button>}
           </>}>
             <div className="detay-bilgi">
               <B e="Paket ücreti">{tl(h.paket)}</B><B e="Ek kalemler">{tl(h.ucret - h.paket)}</B><B e="Toplam">{tl(h.ucret)}</B>
@@ -161,10 +200,22 @@ export function OgrenciDetay(_p: EkranP) {
             {h.taksitler.length ? <div className="tablo-kutu"><table><tbody>{h.taksitler.map((t, i) => (
               <tr key={i}><td>{tarih(t.vade)}</td><td className="kucuk soluk">{t.ek || ''}</td><td className="sayi-h">{tl(t.tutar)}</td><td><Rozet tablo={DURUM_TAKSIT} d={t.durum} /></td></tr>
             ))}</tbody></table></div> : <Bos>Taksit yok.</Bos>}
+            {senetler.length > 0 && <>
+              <h3>Senet ve çekler</h3>
+              <div className="tablo-kutu"><table><tbody>{senetler.map((x) => (
+                <tr key={x.id} className={x.durum === 'iade' ? 'iptal' : ''}><td>{tarih(x.vade)}<div className="kucuk soluk">{x.tur === 'cek' ? 'Çek' : 'Senet'} {x.no}</div></td>
+                  <td className="sayi-h">{tl(x.tutar)}</td><td><Rozet tablo={SENET_DURUM} d={x.durum} /></td>
+                  <td><div className="dugmeler">
+                    {(x.durum === 'portfoy' || x.durum === 'karsiliksiz') && <button className="dugme kucuk" onClick={() => E.senetTahsil(x)}>Tahsil et</button>}
+                    {y.hak('kasa') && x.durum !== 'tahsil' && <button className="dugme kucuk" onClick={() => E.senetDurum(x)}>Durum</button>}
+                    <button className="dugme kucuk" onClick={() => senetYazdir(v, x, o)}>Yazdır</button>
+                  </div></td></tr>
+              ))}</tbody></table></div>
+            </>}
             <h3>Ödemeler</h3>
             {odemeler.length ? <div className="tablo-kutu"><table><tbody>{odemeler.map((x) => (
               <tr key={x.id} className={x.iptal ? 'iptal' : ''}>
-                <td>{tarih(x.tarih)}<div className="kucuk soluk">{x.makbuz_no}</div></td>
+                <td>{tarih(x.tarih)}<div className="kucuk soluk">{x.makbuz_no}</div>{x.fatura_no && <div className="kucuk soluk">Fatura {x.fatura_no}</div>}</td>
                 <td>{x.tur === 'iade' ? <span className="rozet sari">İade</span> : null} {YONTEM[x.yontem] || x.yontem}<div className="kucuk soluk">{x.aciklama} · {x.kaydeden}</div></td>
                 <td className="sayi-h">{x.tur === 'iade' ? '-' : ''}{tl(x.tutar)}</td>
                 <td><div className="dugmeler">
@@ -238,4 +289,35 @@ function fotografKucult(dataUrl: string): Promise<string> {
     img.onerror = () => ok(dataUrl);
     img.src = dataUrl;
   });
+}
+
+export const SENET_DURUM: Record<string, [string, string]> = { portfoy: ['Portföyde', ''], tahsil: ['Tahsil edildi', 'yesil'], karsiliksiz: ['Karşılıksız', 'kirmizi'], iade: ['İade', 'gri'] };
+
+// Direksiyon eğitim karnesi: konu başına son puan ve ortalama; eğitmen "sınava hazır" işaretler.
+function KarneKarti({ o, karneler }: { o: Ogrenci; karneler: Karne[] }) {
+  const y = useY();
+  const { v } = y.b;
+  const E = eylemler(y.b);
+  const konular: Record<string, { son: number; toplam: number; sayi: number }> = {};
+  const sirali = karneler.slice().sort((a, b) => a.zaman.localeCompare(b.zaman));
+  for (const k of sirali) for (const [konu, p] of Object.entries(k.puanlar)) {
+    const x = (konular[konu] ||= { son: 0, toplam: 0, sayi: 0 });
+    x.son = p; x.toplam += p; x.sayi++;
+  }
+  const yetki = o.egitmen_id === v.ben.id || y.hak('ders');
+  const sinif = (p: number) => (p <= 2 ? 'dusuk' : p === 3 ? 'orta' : 'iyi');
+  return (
+    <Kart baslik="Eğitim karnesi" sag={yetki && o.durum === 'aktif' && <button className="dugme kucuk" onClick={() => E.sinavaHazir(o)}>{o.sinava_hazir ? 'Hazır işaretini kaldır' : 'Sınava hazır'}</button>}>
+      {Object.keys(konular).length ? (
+        <table><tbody>{v.tanimlar.karneKonulari.filter((k) => konular[k]).map((k) => (
+          <tr key={k}><td className="kucuk">{k}</td>
+            <td><span className={'puan-cubuk ' + sinif(konular[k].son)} style={{ width: `${konular[k].son * 16}px` }} /> <b>{konular[k].son}</b></td>
+            <td className="kucuk soluk">ort. {(konular[k].toplam / konular[k].sayi).toLocaleString('tr-TR', { maximumFractionDigits: 1 })} · {konular[k].sayi} ders</td></tr>
+        ))}</tbody></table>
+      ) : <Bos>Henüz karne doldurulmamış. Eğitmen dersten sonra doldurur.</Bos>}
+      {sirali.length > 0 && sirali[sirali.length - 1].notu && <p className="bilgi kucuk">Son not: {sirali[sirali.length - 1].notu} <span className="soluk">({sirali[sirali.length - 1].kaydeden})</span></p>}
+      {v.tanimlar.karneKonulari.filter((k) => !konular[k]).length > 0 && Object.keys(konular).length > 0 &&
+        <p className="soluk kucuk">Henüz çalışılmayan: {v.tanimlar.karneKonulari.filter((k) => !konular[k]).join(', ')}</p>}
+    </Kart>
+  );
 }

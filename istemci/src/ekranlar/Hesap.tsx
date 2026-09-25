@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { useY, type EkranP } from '../baglam';
 import { api, islem } from '../api';
-import { Bos, Kart, bildir, icerikPenceresi, pencere, pencereKapat, IsDugmesi } from '../bilesenler/ortak';
+import { Bos, Kart, bildir, icerikPenceresi, pencere, pencereKapat, IsDugmesi, onayla } from '../bilesenler/ortak';
+import { GorunumSecici } from '../bilesenler/Gorunum';
 import { zamanYaz } from '../yardim';
 
 export function Hesap(_p: EkranP) {
@@ -43,7 +44,13 @@ export function Hesap(_p: EkranP) {
         </div>
         <h3>Yetkilerim</h3>
         <p className="kucuk">{b.haklar.length ? b.haklar.map((h) => v.tanimlar.haklar[h]).join(' · ') : 'Yalnız kendi öğrencileriniz ve dersleriniz.'}</p>
-        <div className="dugmeler"><button className="dugme" onClick={sifre}>Şifremi değiştir</button></div>
+        <div className="dugmeler"><button className="dugme" onClick={sifre}>Şifremi değiştir</button>
+          <button className="dugme" title="Telefonunuzu kaybettiyseniz ya da şifrenizin görüldüğünden şüpheleniyorsanız"
+            onClick={() => onayla('Bu cihaz dahil bütün cihazlardaki oturumlarınız kapatılacak. Yeniden giriş yapmanız gerekecek.', async () => { await islem('oturumlari_kapat'); location.reload(); }, 'Hepsini kapat')}>Bütün cihazlardan çık</button></div>
+      </Kart>
+      <Kart baslik="Görünüm (bu cihaz)">
+        <p className="soluk kucuk">Sahada güneş altında okumak için koyu renk ya da büyük yazı seçebilirsiniz.</p>
+        <GorunumSecici />
       </Kart>
       <Kart baslik="Ek doğrulama kodu (isteğe bağlı)">
         <p className="kucuk">Açarsanız girişte şifreden sonra telefonunuzdaki Google Authenticator veya Microsoft Authenticator uygulamasının gösterdiği 6 haneli kod da istenir. Şifreniz başkasının eline geçse bile hesabınıza girilemez.</p>
@@ -51,6 +58,7 @@ export function Hesap(_p: EkranP) {
           : <IsDugmesi className="dugme ana" is={totpAc}>Aç</IsDugmesi>}
       </Kart>
       {(b.rol === 'yonetici' || b.rol === 'sube_muduru') && <KayitDefteri />}
+      {(b.rol === 'yonetici' || b.rol === 'sube_muduru') && <ErisimKaydi />}
     </>
   );
 }
@@ -104,6 +112,24 @@ function KayitDefteri() {
           <tr key={o.id}><td className="kucuk">{zamanYaz(o.zaman)}</td><td>{o.metin}</td><td className="kucuk">{o.kullanici}</td>{y.subeSutunu && <td className="kucuk">{y.subeAd(o.sube_id)}</td>}</tr>
         ))}</tbody></table></div>
       ) : <Bos>Kayıt bulunamadı.</Bos>}
+    </Kart>
+  );
+}
+
+// Kişisel veri erişim kaydı: evrak açma, MEBBİS listesi, veri dökümü, dışa aktarma ve anonimleştirme.
+function ErisimKaydi() {
+  const y = useY();
+  const [l, setL] = useState<{ id: number; zaman: string; kullanici: string; ogrenci_id: string | null; tur: string; aciklama: string }[] | null>(null);
+  const [acik, setAcik] = useState(false);
+  useEffect(() => { if (acik) api<{ kayitlar: NonNullable<typeof l> }>('/api/erisim-kaydi').then((r) => setL(r.kayitlar)).catch((e) => bildir(e.message, 'hata')); }, [acik, y.b.v]);
+  const TUR: Record<string, string> = { evrak: 'Evrak açıldı', mebbis: 'MEBBİS listesi', dokum: 'Veri dökümü', disa_aktar: 'Bütün veri dışa aktarıldı', anonim: 'Anonim yapıldı', fatura: 'Fatura listesi' };
+  return (
+    <Kart baslik="Kişisel veri erişim kaydı" sag={!acik && <button className="dugme kucuk" onClick={() => setAcik(true)}>Göster</button>}>
+      <p className="soluk kucuk">Kimlik ve evrak gibi kişisel verilere kim, ne zaman erişti (KVKK).</p>
+      {acik && (!l ? <Bos>Yükleniyor…</Bos> : l.length ? <div className="tablo-kutu"><table><tbody>{l.map((x) => (
+        <tr key={x.id}><td className="kucuk">{zamanYaz(x.zaman)}</td><td>{TUR[x.tur] || x.tur}<div className="kucuk soluk">{x.aciklama}</div></td>
+          <td>{x.ogrenci_id ? <button className="baglanti" onClick={() => y.b.git('ogrenci', x.ogrenci_id!)}>{y.ogrAd(x.ogrenci_id)}</button> : '—'}</td><td className="kucuk">{x.kullanici}</td></tr>
+      ))}</tbody></table></div> : <Bos>Kayıt yok.</Bos>)}
     </Kart>
   );
 }

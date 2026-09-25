@@ -34,13 +34,14 @@ CREATE INDEX IF NOT EXISTS sinav_ogr ON sinavlar(ogrenci_id);
       const onceki = c.q('SELECT * FROM sinavlar WHERE ogrenci_id=? AND tur=?', o.id, tur);
       if (onceki.some((s) => s.sonuc === 'gecti')) fail('Öğrenci bu sınavı zaten geçti.');
       if (onceki.some((s) => s.sonuc === 'bekliyor')) fail('Öğrencinin sonucu girilmemiş bir sınavı var.');
-      const kalan = onceki.filter((s) => s.sonuc === 'kaldi').length;
-      if (kalan >= a.sinavHakki) fail(`Sınav hakkı dolmuş (${a.sinavHakki}).`);
+      // Sınava girmeyen adayın hakkı da yanar (ayardan kapatılabilir; mevzuata göre doğrulanmalı).
+      const yanan = onceki.filter((s) => s.sonuc === 'kaldi' || (a.girmediHakYakar && s.sonuc === 'girmedi')).length;
+      if (yanan >= a.sinavHakki) fail(`Sınav hakkı dolmuş (${a.sinavHakki}).`);
       if (tur === 'direksiyon' && !c.q1("SELECT 1 FROM sinavlar WHERE ogrenci_id=? AND tur='e_sinav' AND sonuc='gecti'", o.id)) fail('Önce e-sınavı geçmesi gerekir.');
       const tarih = gun(g.tarih);
       const harc = kurus(g.harc ?? 0, 'Sınav harcı');
       const id = randomUUID();
-      const deneme = onceki.filter((s) => s.sonuc !== 'girmedi').length + 1;
+      const deneme = onceki.filter((s) => a.girmediHakYakar || s.sonuc !== 'girmedi').length + 1;
       c.run('INSERT INTO sinavlar(id,ogrenci_id,sube_id,tur,tarih,saat,deneme,sonuc,kaydeden,olusturma,yer,harc) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
         id, o.id, o.sube_id, tur, tarih, saat(g.saat), deneme, 'bekliyor', k.ad, simdi(), metin(g.yer, 120), harc);
       const turAd = tur === 'e_sinav' ? 'E-sınav' : 'Direksiyon sınavı';
@@ -78,10 +79,14 @@ CREATE INDEX IF NOT EXISTS sinav_ogr ON sinavlar(ogrenci_id);
         c.run("UPDATE ogrenciler SET durum='tamamlandi' WHERE id=?", o.id);
         c.run("UPDATE dersler SET durum='iptal', notu='Sınavı geçti' WHERE ogrenci_id=? AND durum='planli'", o.id);
       }
+      // Yanlışlıkla "geçti" girilip düzeltilirse öğrenci yeniden aktif olur (başka geçen direksiyon sınavı yoksa).
+      if (s.tur === 'direksiyon' && s.sonuc === 'gecti' && sonuc !== 'gecti' && o.durum === 'tamamlandi'
+        && !c.q1("SELECT 1 FROM sinavlar WHERE ogrenci_id=? AND tur='direksiyon' AND sonuc='gecti' AND id!=?", o.id, s.id))
+        c.run("UPDATE ogrenciler SET durum='aktif' WHERE id=?", o.id);
       const ad = s.tur === 'e_sinav' ? 'e-sınav' : 'direksiyon sınavı';
       const yazi = { gecti: 'GEÇTİ', kaldi: 'kaldı', girmedi: 'girmedi', bekliyor: 'sonuç bekleniyor' }[sonuc];
-      const kalanHak = a.sinavHakki - c.q1("SELECT COUNT(*) n FROM sinavlar WHERE ogrenci_id=? AND tur=? AND sonuc='kaldi'", o.id, s.tur).n;
-      return { olay: [s.sube_id, 'sinav', `${adSoyad(o)} ${ad}: ${yazi}${puan !== null ? ` (${puan} puan)` : ''}${sonuc === 'kaldi' ? ` · kalan hak ${Math.max(0, kalanHak)}` : ''}`] };
+      const kalanHak = a.sinavHakki - c.q1(`SELECT COUNT(*) n FROM sinavlar WHERE ogrenci_id=? AND tur=? AND (sonuc='kaldi'${a.girmediHakYakar ? " OR sonuc='girmedi'" : ''})`, o.id, s.tur).n;
+      return { olay: [s.sube_id, 'sinav', `${adSoyad(o)} ${ad}: ${yazi}${puan !== null ? ` (${puan} puan)` : ''}${sonuc === 'kaldi' || (sonuc === 'girmedi' && a.girmediHakYakar) ? ` · kalan hak ${Math.max(0, kalanHak)}` : ''}`] };
     },
   },
 

@@ -1,7 +1,7 @@
 // Yazdırma: ödeme makbuzu ve kayıt sözleşmesi (karar 13). Kurum adı ve logosu ayarlardan gelir.
 // Sayfa yazdırılırken yalnız #yazdir-alani görünür (stil.css, @media print).
 import { useSyncExternalStore, type ReactNode } from 'react';
-import type { Odeme, Ogrenci, Veri } from './tipler';
+import type { Odeme, Ogrenci, Senet, Veri } from './tipler';
 import { tarih, tl, YONTEM } from './yardim';
 
 let icerik: ReactNode = null;
@@ -105,7 +105,31 @@ export function sozlesmeYazdir(v: Veri, o: Ogrenci) {
           </tbody></table>
         </>
       )}
-      <div className="y-imza"><div>Kursiyer<br /><br />{o.ad} {o.soyad}</div><div>Kurum yetkilisi<br /><br />{v.kurum.ad}</div></div>
+      {o.veli_ad && <table className="y-tablo"><tbody><tr><th>Veli ({o.veli_yakinlik || 'yasal temsilci'})</th><td>{o.veli_ad}</td><th>Veli telefonu</th><td>{o.veli_telefon}</td></tr></tbody></table>}
+      <div className="y-imza"><div>Kursiyer<br /><br />{o.ad} {o.soyad}</div>{o.veli_ad && <div>Veli<br /><br />{o.veli_ad}</div>}<div>Kurum yetkilisi<br /><br />{v.kurum.ad}</div></div>
+    </div>,
+  );
+}
+
+// Bono (senet) çıktısı: yaygın kullanılan düzen. Kurum, hukuki geçerlilik için kendi matbu senedini de kullanabilir.
+export function senetYazdir(v: Veri, x: Senet, o: Ogrenci) {
+  const sube = v.subeler.find((s) => s.id === x.sube_id);
+  yazdir(
+    <div className="y-sayfa">
+      <Ust v={v} baslik={x.tur === 'cek' ? 'ÇEK KAYDI' : 'BONO (SENET)'} />
+      <table className="y-tablo"><tbody>
+        <tr><th>Senet no</th><td>{x.no || '—'}</td><th>Vade</th><td><b>{tarih(x.vade)}</b></td></tr>
+        <tr><th>Tutar</th><td colSpan={3}><b>{tl(x.tutar)}</b> · {yaziyla(x.tutar)}</td></tr>
+        <tr><th>Düzenleme yeri / tarihi</th><td colSpan={3}>{sube?.adres || v.kurum.adres} · {tarih(x.olusturma)}</td></tr>
+      </tbody></table>
+      {x.tur === 'senet' ? (
+        <div className="y-metin">İşbu bono mukabilinde {tarih(x.vade)} tarihinde {v.kurum.ad} veya emrühavalesine yukarıda yazılı {tl(x.tutar)} ({yaziyla(x.tutar)}) ödeyeceğim. Bedeli sürücü kursu eğitim hizmeti olarak alınmıştır. Uyuşmazlık halinde {sube?.ad || ''} bulunduğu yer mahkeme ve icra daireleri yetkilidir.</div>
+      ) : <div className="y-metin">Banka: {x.banka} · Çek no: {x.no}</div>}
+      <table className="y-tablo"><tbody>
+        <tr><th>Borçlu</th><td>{x.borclu || `${o.ad} ${o.soyad}`}</td><th>T.C. kimlik no</th><td>{o.tc}</td></tr>
+        <tr><th>Adres</th><td colSpan={3}>{o.adres}</td></tr>
+      </tbody></table>
+      <div className="y-imza"><div>Borçlu (imza)<br /><br />{x.borclu || `${o.ad} ${o.soyad}`}</div><div>Kefil (varsa)<br /><br />&nbsp;</div></div>
     </div>,
   );
 }
