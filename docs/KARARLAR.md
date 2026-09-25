@@ -68,7 +68,7 @@ Hepsi sonradan değiştirilebilir.
 ## İkinci aşama (hata düzeltmeleri ve eklenen özellikler)
 
 Emrullah KARA'nın "önce 7 hatayı düzelt, eksikleri ekle, merkez ve DC tarafını, kullanım kolaylığını tamamla" onayıyla yapıldı.
-Mevzuat ve hukuk bilgisi gerektiren değerler **varsayılan** olarak girildi ve Ayarlar'dan değişir; kurum tarafından doğrulanmalıdır.
+Mevzuat ve hukuk bilgisi gerektiren değerler **varsayılan** olarak girildi. Emrullah KARA varsayılanları kabul etti (2026-09-25): her kurum kendi durumuna göre Ayarlar'dan değiştirir.
 
 | # | Konu | Uygulanan |
 |---|---|---|
@@ -77,13 +77,13 @@ Mevzuat ve hukuk bilgisi gerektiren değerler **varsayılan** olarak girildi ve 
 | S16 | Canlı akış | Girişi kapatılan, şifresi ya da görevi değişen personelin akışı hemen kesilir; yetkisi değişenin süzgeci güncellenir |
 | S17 | Hatalı giriş | Kişi + yer 5, yalnız kişi 20, yalnız yer 30 hatada 15 dakika kilit. Başkası bir öğrenciyi kolayca kilitleyemez |
 | S18 | Hız | Borç ve ders sayıları toplu hesaplanır; canlı olaylarda ekran bir kez yenilenir, ekran kapalıysa açılınca yenilenir; öğrenci listesi 100'er satır açılır |
-| S19 | Sınava girmeyen | Hakkı yanmış sayılır (varsayılan; **doğrulanmalı**, Ayarlar'dan kapatılabilir). "Geçti" düzeltilirse öğrenci yeniden aktif olur |
-| S20 | Eğitmen günlük sınırı | Varsayılan 8 direksiyon dersi (**doğrulanmalı**; 0 = sınır yok) |
-| S21 | E-sınav geçerliliği | Varsayılan 730 gün; dolmasına 60 gün kala uyarı (**doğrulanmalı**; 0 = uyarı yok) |
+| S19 | Sınava girmeyen | Hakkı yanmış sayılır (onaylı varsayılan; Ayarlar'dan kapatılabilir). "Geçti" düzeltilirse öğrenci yeniden aktif olur |
+| S20 | Eğitmen günlük sınırı | Varsayılan 8 direksiyon dersi (onaylı varsayılan; 0 = sınır yok) |
+| S21 | E-sınav geçerliliği | Varsayılan 730 gün; dolmasına 60 gün kala uyarı (onaylı varsayılan; 0 = uyarı yok) |
 | S22 | Veli | 18 yaşından küçük adayda veli adı ve telefonu zorunlu; sözleşmede veli imza yeri |
-| S23 | Kişisel veri (KVKK) | Aydınlatma metni (örnek, **hukukçuya kontrol ettirilmeli**), onay kaydı, veri dökümü, erişim kaydı, saklama süresi (varsayılan 10 yıl) dolunca anonimleştirme |
+| S23 | Kişisel veri (KVKK) | Aydınlatma metni (onaylı örnek metin; kurum Ayarlar'dan kendi metnini yazar), onay kaydı, veri dökümü, erişim kaydı, saklama süresi (varsayılan 10 yıl) dolunca anonimleştirme |
 | S24 | Şifreli saklama | Evrak dosyaları, doğrulama anahtarları, sanal POS ve SMS şifreleri AES-256 ile şifreli. Anahtar veritabanının dışındadır (bilgisayarda `veri-anahtari.txt`, bulutta gizli değişken) |
-| S25 | Fatura | Makbuz fatura yerine geçmez. Muhasebeciye fatura listesi (matrah ve KDV ayrılmış) ve kesilen fatura numarasının işlenmesi. KDV varsayılan %20 (**muhasebeciyle doğrulanmalı**). E-arşiv sağlayıcı bağlantısı yok |
+| S25 | Fatura | Makbuz fatura yerine geçmez. Muhasebeciye fatura listesi (matrah ve KDV ayrılmış) ve kesilen fatura numarasının işlenmesi. KDV varsayılan %20 (onaylı varsayılan; kurum Ayarlar'dan değiştirir). E-arşiv sağlayıcı bağlantısı yok |
 | S26 | Yedek | Bilgisayarda her gün her firmanın yedeği, 30 gün saklanır; DC platformdan yedek alma ve dönme. Bulutta son 30 gün içinde istenen ana dönüş. Kurum sahibi bütün verisini dosya olarak indirebilir |
 | S27 | Senet ve çek | Senet borcu değiştirmez, güvencedir; tahsil edilince makbuzlu ödeme yazılır. Senet çıktısı örnek düzendedir |
 | S28 | Banka ve aktarım | Banka hesabı / POS, şube kasasından merkeze ve bankaya aktarım; gün sonu aktarımları hesaba katar |
